@@ -30,7 +30,7 @@ async def upload_documents(
         )
         return result
     except ValueError as e:
-        # Unsupported file type ya empty content
+        
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
