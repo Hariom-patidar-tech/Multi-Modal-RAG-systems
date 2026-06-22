@@ -1,3 +1,4 @@
+
 SYSTEM_PROMPT = """
 You are an expert AI Assistant running on a Multi-Source RAG Platform. 
 Your goal is to answer the user's question accurately using only the provided context below.

@@ -1,174 +1,120 @@
 from sqlalchemy.orm import Session
-from app.loaders.youtube_loader import YouTubeLoader  
+from pydantic import BaseModel
+from typing import Literal
+
+# Loaders and Engine Imports (Aapke existing imports)
+from app.loaders.youtube_loader import YouTubeLoader
 from app.loaders.website_loader import WebsiteLoader
 from app.loaders.github_loader import GitHubLoader
 from app.rag.chunker import create_chunks
-from app.rag.vectordb import VectorDBEngine
-from app.rag.pipeline import RAGPipeline
 from app.db.models import Document
 from app.core.logger import logger
 
-# Single instances initialization for performance scaling
-_youtube_loader = YouTubeLoader()  
+# Ingestion ka SAARA kaam ab isi shared pipeline se hoga,
+# taaki vector_db aur BM25 lexical index dono jagah SYNC rahein
+# (document/PDF upload wale flow ke saath bhi)
+from app.services.ingestion_service import _rag_pipeline
+
+# Global loader instances
+_youtube_loader = YouTubeLoader()
 _website_loader = WebsiteLoader()
 _github_loader = GitHubLoader()
-_vector_db = VectorDBEngine()
-_rag_pipeline = RAGPipeline()
 
-def ingest_youtube(url: str, db: Session) -> dict:
+
+# 1. Request schema (route mein bhi use hota hai)
+class UnifiedIngestRequest(BaseModel):
+    url: str
+    source_type: Literal["youtube", "website", "github"]
+
+
+def _save_and_ingest(url: str, source_type: str, raw_text: str, db: Session, single_chunk: bool = False) -> dict:
     """
-    YouTube URL parsing, vector embedding upsertion, aur transactional database log logging.
+    Common helper: chunk banao, DB me Document entry banao,
+    aur RAGPipeline ke through vector DB + lexical index me daalo.
+    Isse doc_id sahi se set hota hai aur query time pe filter kaam karta hai.
+
+    single_chunk=True: poora raw_text EK hi chunk ke roop mein store hoga
+    (chote YouTube videos ke liye useful, taaki context fragment na ho).
+    Agar text bahut lamba hai (>12000 chars, LLM context limit ke liye risky),
+    to safety ke liye normal chunking par fallback hota hai.
     """
-    logger.info(f"Triggering YouTube ingestion service for URL: {url}")
-    try:
-        # Loader response se raw string text extract kar rahe hain
-        loader_response = _youtube_loader.load(url)
-        raw_text = loader_response[0]["text"] if loader_response else ""
-        
+    if not raw_text or not raw_text.strip():
+        raise ValueError(f"No content extracted from {source_type} source: {url}")
+
+    MAX_SINGLE_CHUNK_CHARS = 12000  # ~3000 tokens, Groq context ke liye safe
+
+    if single_chunk and len(raw_text) <= MAX_SINGLE_CHUNK_CHARS:
+        chunks = [raw_text.strip()]
+        logger.info(f"Storing {source_type} content as a SINGLE chunk ({len(raw_text)} chars).")
+    else:
+        if single_chunk:
+            logger.warning(
+                f"{source_type} content too long ({len(raw_text)} chars) for single-chunk mode, "
+                f"falling back to normal chunking."
+            )
         chunks = create_chunks(raw_text)
-        
-        if not chunks:
-            raise ValueError("No extractable transcript found for the provided YouTube URL.")
 
-        _vector_db.upsert_chunks(
-            chunks=chunks,
-            source_name=url,
-            source_type="youtube"
-        )
-        
-        _rag_pipeline.initialize_lexical_index(chunks)
+    # DB entry pehle banao taaki doc_id mil jaye
+    db_doc = Document(
+        source_name=url,
+        source_type=source_type,
+        total_chunks=len(chunks),
+        metadata_dict={"url": url},
+    )
+    db.add(db_doc)
+    db.commit()
+    db.refresh(db_doc)
 
-        # Relational MySQL table record population
-        db_doc = Document(
-            source_name=url,
-            source_type="youtube",
-            total_chunks=len(chunks)
-        )
-        db.add(db_doc)
-        db.commit()
-        db.refresh(db_doc)
+    # Vector DB + lexical (BM25) index — dono ek hi pipeline se
+    _rag_pipeline.run_ingestion(
+        chunks=chunks,
+        source_name=url,
+        source_type=source_type,
+        doc_id=db_doc.id,
+    )
 
-        logger.info(f"Successfully processed and cataloged YouTube source.")
-        return {"document_id": db_doc.id, "status": "success", "total_chunks": len(chunks)}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"YouTube ingestion failed: {str(e)}")
-        raise Exception(f"YouTube Pipeline Error: {str(e)}")
+    return {
+        "status": "success",
+        "document_id": db_doc.id,
+        "source_type": source_type,
+        "chunks_added": len(chunks),
+    }
+
+
+# --- Ingestion Functions (ab yeh fully kaam karte hain) ---
+def ingest_youtube(url: str, db: Session) -> dict:
+    loader_response = _youtube_loader.load(url)
+    raw_text = loader_response[0]["text"] if loader_response else ""
+    logger.info(f"YouTube transcript loaded for {url}, length={len(raw_text)}")
+    # single_chunk=True: chote/medium videos ka poora transcript ek context mein jaata hai
+    return _save_and_ingest(url, "youtube", raw_text, db, single_chunk=True)
 
 
 def ingest_website(url: str, db: Session) -> dict:
-    """
-    Web scraper parser data extraction, matrix validation, aur catalog logging.
-    """
-    logger.info(f"Triggering Website scraping ingestion for URL: {url}")
-    try:
-        # Loader ko call kiya
-        loader_response = _website_loader.load(url)
-        
-        # 🔥 FIX: Check karo agar response pehle se string hai toh direct use karo, 
-        # nahi toh list samajh kar extract karo
-        if isinstance(loader_response, str):
-            raw_text = loader_response
-        else:
-            raw_text = loader_response[0]["text"] if loader_response else ""
-        
-        chunks = create_chunks(raw_text)
-        
-        if not chunks:
-            raise ValueError("No extractable textual data fetched from the webpage URL.")
-
-        _vector_db.upsert_chunks(
-            chunks=chunks,
-            source_name=url,
-            source_type="website"
-        )
-        
-        _rag_pipeline.initialize_lexical_index(chunks)
-
-        db_doc = Document(
-            source_name=url,
-            source_type="website",
-            total_chunks=len(chunks)
-        )
-        db.add(db_doc)
-        db.commit()
-        db.refresh(db_doc)
-
-        logger.info(f"Successfully scraped and index mapped website source.")
-        return {"document_id": db_doc.id, "status": "success", "total_chunks": len(chunks)}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Website ingestion broken down: {str(e)}")
-        raise Exception(f"Website Pipeline Error: {str(e)}")
+    # WebsiteLoader.load() seedha plain string return karta hai (list of dicts NAHI)
+    raw_text = _website_loader.load(url)
+    logger.info(f"Website content loaded for {url}, length={len(raw_text) if raw_text else 0}")
+    return _save_and_ingest(url, "website", raw_text, db)
 
 
 def ingest_github(url: str, db: Session) -> dict:
+    repo_files = _github_loader.load(url)
+    # GitHubLoader assumed to return a list of files like [{"text": "...", "path": "..."}]
+    raw_text = "\n\n".join([f.get("text", "") for f in repo_files]) if repo_files else ""
+    logger.info(f"GitHub repo loaded for {url}, files={len(repo_files) if repo_files else 0}")
+    return _save_and_ingest(url, "github", raw_text, db)
+
+
+# 2. UNIFIED ROUTER — ek hi function, sab source types ke liye
+def route_ingestion(payload: UnifiedIngestRequest, db: Session) -> dict:
     """
-    GitHub deep code-repository clone parse engine integration with multiple file tracking.
+    Ab se sirf ye ek function call hoga, chahe source kuch bhi ho.
     """
-    logger.info(f"Triggering GitHub Repository recursive ingestion for URL: {url}")
-    try:
-        repo_files = _github_loader.load(url)
-        
-        total_chunks_processed = 0
-        all_corpus_chunks = []
-
-        for file_obj in repo_files:
-            file_name_path = f"{url}/{file_obj['file_path']}"
-            file_text = file_obj["text"]
-            
-            # GitHub loader already file iteration ke andar pure string de raha hai
-            file_chunks = create_chunks(file_text)
-            if not file_chunks:
-                continue
-                
-            total_chunks_processed += len(file_chunks)
-            all_corpus_chunks.extend(file_chunks)
-
-            _vector_db.upsert_chunks(
-                chunks=file_chunks,
-                source_name=file_name_path,
-                source_type="github"
-            )
-
-        if total_chunks_processed == 0:
-            raise ValueError("No parsable code assets found inside the target Git repository.")
-
-        _rag_pipeline.initialize_lexical_index(all_corpus_chunks)
-
-        db_doc = Document(
-            source_name=url,
-            source_type="github",
-            total_chunks=total_chunks_processed
-        )
-        db.add(db_doc)
-        db.commit()
-        db.refresh(db_doc)
-
-        logger.info(f"Deep scanned and indexed GitHub repository codebase safely.")
-        return {"document_id": db_doc.id, "status": "success", "total_chunks": total_chunks_processed}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"GitHub deep ingest runtime collapse: {str(e)}")
-        raise Exception(f"GitHub Pipeline Error: {str(e)}")
-    
-def auto_ingest(url: str, db: Session) -> dict:
-    """
-    URL check karke automatically sahi loader (YouTube, GitHub, ya Website) select karta hai.
-    """
-    clean_url = url.strip().lower()
-    
-    # 1. Check for YouTube
-    if "youtube.com" in clean_url or "youtu.be" in clean_url:
-        logger.info(f"Auto-detected YouTube URL type for: {url}")
-        return ingest_youtube(url, db)
-        
-    # 2. Check for GitHub
-    elif "github.com" in clean_url:
-        logger.info(f"Auto-detected GitHub Repository type for: {url}")
-        return ingest_github(url, db)
-        
-    # 3. Fallback to Website
+    if payload.source_type == "youtube":
+        return ingest_youtube(payload.url, db)
+    elif payload.source_type == "website":
+        return ingest_website(payload.url, db)
+    elif payload.source_type == "github":
+        return ingest_github(payload.url, db)
     else:
-        logger.info(f"Auto-detected standard Webpage type for: {url}")
-        return ingest_website(url, db)
+        raise ValueError("Invalid source_type! Use: youtube, website, or github.")

@@ -1,9 +1,24 @@
 import os
 import shutil
+import stat
 import tempfile
 from git import Repo
 from app.core.logger import logger
 from typing import List, Dict, Any
+
+
+def _remove_readonly(func, path, exc_info):
+    """
+    Windows par Git ki .git\\objects\\pack\\* files read-only attribute ke saath
+    bani hoti hain, isliye shutil.rmtree() unhe delete nahi kar pata
+    (WinError 5: Access is denied). Yeh handler attribute clear karke retry karta hai.
+    """
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception as e:
+        logger.warning(f"Could not remove {path} even after chmod: {str(e)}")
+
 
 class GitHubLoader:
     def __init__(self):
@@ -28,11 +43,12 @@ class GitHubLoader:
 
         # 1. Ek temporary directory create karein jahan repo clone hoga
         temp_dir = tempfile.mkdtemp(prefix="rag_git_")
+        repo = None
         
         try:
             logger.info(f"Cloning repository into temporary directory: {temp_dir}")
             # Clone repo (shallow clone with depth=1 taaki fast download ho)
-            Repo.clone_from(repo_url, temp_dir, depth=1)
+            repo = Repo.clone_from(repo_url, temp_dir, depth=1)
             logger.info("Clone completed successfully. Parsing codebase...")
 
             # 2. Directory Tree ko recursively walk (traverse) karein
@@ -69,7 +85,21 @@ class GitHubLoader:
             raise Exception(f"GitHub Repository Loader Failed: {str(e)}")
             
         finally:
+            # 2.5 GitPython ka internal git process close karo, taaki Windows par
+            # .git\objects\pack\* files par file-lock na rahe (cleanup se pehle zaroori)
+            if repo is not None:
+                try:
+                    repo.close()
+                except Exception:
+                    pass
+
             # 3. Clean-up: Storage space bachane ke liye temp directory ko delete karna zaroori hai
+            # onerror handler Windows ke read-only .git files ko bhi clear kar deta hai
             if os.path.exists(temp_dir):
                 logger.info(f"Cleaning up temporary git directory: {temp_dir}")
-                shutil.rmtree(temp_dir)
+                try:
+                    shutil.rmtree(temp_dir, onerror=_remove_readonly)
+                except Exception as cleanup_err:
+                    # Cleanup fail hone se poori request fail nahi honi chahiye —
+                    # sirf warning log karo, data already process ho chuka hai
+                    logger.warning(f"Temp directory cleanup failed (non-fatal): {str(cleanup_err)}")

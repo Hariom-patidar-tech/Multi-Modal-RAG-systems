@@ -1,34 +1,27 @@
-# app/api/v1/source.py
-
-from fastapi import APIRouter, Depends, HTTPException  # 👈 HTTPException yahan se aayega
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel  # 👈 BaseModel yahan se aayega
 from app.db.session import get_db
-from app.services.source_service import auto_ingest, ingest_youtube, ingest_website, ingest_github
+from app.schemas.source import UnifiedIngestRequest
+from app.services.source_service import ingest_youtube, ingest_website, ingest_github
 
 router = APIRouter()
 
-# 👈 IngestRequest class ko yahan define kar diya
-class IngestRequest(BaseModel):
-    url: str
-
-@router.post("/auto-ingest")
-def api_auto_ingest(payload: IngestRequest, db: Session = Depends(get_db)):
+# EK HI ENDPOINT — sabhi sources (youtube / website / github) ke liye
+@router.post("/ingest")
+def ingest_unified(payload: UnifiedIngestRequest, db: Session = Depends(get_db)):
+    """
+    Ab se sirf ye ek endpoint use hoga sabhi sources ke liye.
+    """
     try:
-        response = auto_ingest(payload.url, db)
-        return response
+        if payload.source_type == "youtube":
+            return ingest_youtube(payload.url, db)
+        elif payload.source_type == "website":
+            return ingest_website(payload.url, db)
+        elif payload.source_type == "github":
+            return ingest_github(payload.url, db)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid source_type")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Agar aapko purane teenon endpoints bhi rakhne hain toh unhe niche rehne de sakte hain:
-@router.post("/youtube")
-def youtube_source(payload: IngestRequest, db: Session = Depends(get_db)):
-    return ingest_youtube(payload.url, db)
-
-@router.post("/website")
-def website_source(payload: IngestRequest, db: Session = Depends(get_db)):
-    return ingest_website(payload.url, db)
-
-@router.post("/github")
-def github_source(payload: IngestRequest, db: Session = Depends(get_db)):
-    return ingest_github(payload.url, db)

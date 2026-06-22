@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from rank_bm25 import BM25Okapi
 from app.rag.vectordb import VectorDBEngine
 from app.rag.reranker import RerankerEngine  # Jo humne pichle step me banaya
@@ -51,24 +51,26 @@ class HybridRetriever:
                 })
         return results
 
-    def _vector_search(self, query: str, top_k: int = 10, source_type_filter: str = None) -> List[Dict[str, Any]]:
+    def _vector_search(self, query: str, top_k: int = 10, source_type_filter: Any = None) -> List[Dict[str, Any]]:
         """Internal helper: Semantic concept vector search stream"""
         chroma_results = self.vector_db.query_similarity(
             query_text=query, 
             top_k=top_k, 
-            source_type_filter=source_type_filter
+            source_type=source_type_filter
         )
         
         results = []
-        if chroma_results and 'documents' in chroma_results and chroma_results['documents']:
+        if chroma_results and chroma_results.get('documents') and chroma_results['documents']:
             documents = chroma_results['documents'][0]
-            metadatas = chroma_results['metadatas'][0] if 'metadatas' in chroma_results else [{}] * len(documents)
-            distances = chroma_results['distances'][0] if 'distances' in chroma_results else [0.0] * len(documents)
+            metadatas = chroma_results.get('metadatas') or [{}] * len(documents)
+            metadatas = metadatas[0] if metadatas and metadatas[0] is not None else [{}] * len(documents)
+            distances_raw = chroma_results.get('distances') or [0.0] * len(documents)
+            distances = distances_raw[0] if distances_raw and distances_raw[0] is not None else [0.0] * len(documents)
             
             for doc, meta, dist in zip(documents, metadatas, distances):
                 results.append({
                     "content": doc,
-                    "metadata": meta,
+                    "metadata": meta or {},
                     "score": float(1 - dist),  # Distance matrix inversion to get absolute score
                     "type": "semantic"
                 })

@@ -18,7 +18,7 @@ class RAGPipeline:
         self.llm = LLMEngine()
         self.lexical_chunks = []
 
-    def run_ingestion(self, file_path: str, filename: str) -> list:
+    def run_ingestion(self, file_path: str, filename: str, doc_id: int = None) -> list:
         """
         PDF load karega -> Text extract karega -> Chunk banayega -> 
         ChromaDB me store karega -> BM25 fit karega -> Chunks return karega.
@@ -46,7 +46,8 @@ class RAGPipeline:
         self.vector_db.upsert_chunks(
             chunks=chunks,
             source_name=filename,
-            source_type="pdf"
+            source_type="pdf",
+            doc_id=doc_id
         )
 
         # 5. BM25 algorithm execution index matching matrix update
@@ -89,13 +90,12 @@ class RAGPipeline:
             context = "\n\n".join([doc["content"] for doc in retrieved_docs])
             answer = self.llm.generate_answer(context=context, question=question)
 
-            
-                
+            citations = [{"source": doc.get("metadata", {}).get("source")} for doc in retrieved_docs]
 
             return {
                 "question": question,
-                "answer": answer
-                
+                "answer": answer,
+                "citations": citations
             }
 
         except Exception as e:
