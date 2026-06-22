@@ -6,7 +6,7 @@ from app.services.source_service import ingest_youtube, ingest_website, ingest_g
 
 router = APIRouter()
 
-# EK HI ENDPOINT — sabhi sources (youtube / website / github) ke liye
+
 @router.post("/ingest")
 def ingest_unified(payload: UnifiedIngestRequest, db: Session = Depends(get_db)):
     """
