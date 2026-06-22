@@ -10,7 +10,7 @@ router = APIRouter()
 @router.post("/documents")
 async def query_documents(
     request: QueryRequest,
-    doc_id: Optional[int] = None,  # Optional: Specific document ke liye
+    doc_id: Optional[int] = None, 
     db: Session = Depends(get_db)
 ):
     """
@@ -38,8 +38,7 @@ async def query_external(
     YouTube, Website aur GitHub mein search.
     source_type query param doge to sirf wahi source filter hoga, nahi to teeno mein search hoga.
     """
-    # NOTE: yeh values ingestion ke source_type se EXACTLY match karni chahiye
-    # (source_service.py mein "youtube" / "website" / "github" use hota hai)
+    
     effective_filter = source_type if source_type else ["youtube", "website", "github"]
 
     return ask_question(
