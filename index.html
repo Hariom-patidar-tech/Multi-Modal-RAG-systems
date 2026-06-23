@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus — Multi-source RAG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf7f0;
+    --bg-panel: #ffffff;
+    --bg-subtle: #f3efe4;
+    --border: #e6e0d2;
+    --border-strong: #d8d0bd;
+    --text: #2a2620;
+    --text-dim: #6b6457;
+    --text-faint: #9a9384;
+
+    --teal: #0d8a72;
+    --teal-deep: #086856;
+    --teal-soft: #e3f3ee;
+    --teal-soft-border: #bfe4da;
+
+    --doc: #b8860b;
+    --youtube: #c4452e;
+    --website: #2563a8;
+    --github: #5b5347;
+
+    --display: "Plus Jakarta Sans", sans-serif;
+    --body: "Inter", sans-serif;
+    --mono: "JetBrains Mono", monospace;
+
+    --shadow-sm: 0 1px 2px rgba(40,35,25,0.06);
+    --shadow-md: 0 2px 10px rgba(40,35,25,0.07);
+    --shadow-lg: 0 8px 28px rgba(40,35,25,0.10);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+
+  body {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ============ LEFT: SOURCES PANEL ============ */
+  .sources-panel {
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    padding: 24px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+    max-height: 100vh;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-bottom: 2px;
+  }
+  .brand-mark {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    flex-shrink: 0;
+    background: var(--teal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 15px;
+  }
+  .brand h1 {
+    font-family: var(--display);
+    font-size: 21px;
+    font-weight: 800;
+    margin: 0;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .brand-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    margin: 0 0 2px 45px;
+    letter-spacing: 0.02em;
+  }
+
+  .panel-block {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .panel-label {
+    font-family: var(--display);
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: var(--text);
+    margin: 0 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .panel-label .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--teal);
+    flex-shrink: 0;
+  }
+
+  .ingest-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    background: var(--bg-subtle);
+    padding: 4px;
+    border-radius: 10px;
+  }
+  .ingest-tab {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-align: center;
+    padding: 7px 4px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .ingest-tab:hover { color: var(--text); }
+  .ingest-tab.active {
+    background: var(--bg-panel);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .field { margin-bottom: 10px; }
+  .field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+    letter-spacing: 0.03em;
+  }
+  input[type="text"], input[type="url"] {
+    width: 100%;
+    padding: 10px 11px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg-panel);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text);
+    transition: border-color 0.15s ease;
+  }
+  input::placeholder, textarea::placeholder { color: var(--text-faint); }
+  input[type="text"]:focus, input[type="url"]:focus, textarea:focus {
+    outline: none;
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px var(--teal-soft);
+  }
+
+  .file-drop {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 11px;
+    padding: 20px 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-dim);
+  }
+  .file-drop:hover {
+    border-color: var(--teal);
+    background: var(--teal-soft);
+  }
+  .file-drop.drag-over {
+    border-color: var(--teal);
+    background: var(--teal-soft);
+  }
+  .file-drop input { display: none; }
+  .file-drop .drop-icon {
+    font-size: 18px;
+    display: block;
+    margin-bottom: 7px;
+    color: var(--teal);
+  }
+  .file-drop .ext-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    margin: 7px 2px 0;
+    color: var(--text-faint);
+    background: var(--bg-panel);
+  }
+
+  button.go {
+    width: 100%;
+    margin-top: 10px;
+    padding: 11px;
+    border: none;
+    border-radius: 9px;
+    background: var(--teal);
+    color: #fff;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 12.5px;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button.go:hover:not(:disabled) { background: var(--teal-deep); }
+  button.go:active:not(:disabled) { transform: translateY(1px); }
+  button.go:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .status-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    display: none;
+    line-height: 1.4;
+    border: 1px solid transparent;
+  }
+  .status-line.show { display: block; }
+  .status-line.ok { background: var(--teal-soft); color: var(--teal-deep); border-color: var(--teal-soft-border); }
+  .status-line.err { background: #fbeae6; color: #a33a23; border-color: #f0c6bb; }
+  .status-line.pending { background: var(--bg-subtle); color: var(--text-dim); border-color: var(--border); }
+
+  .ledger {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .ledger-empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    padding: 12px 0;
+    text-align: center;
+  }
+  .ticket {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .ticket-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .ticket-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .ticket-type {
+    color: var(--text-faint);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .dot-document { background: var(--doc); }
+  .dot-youtube { background: var(--youtube); }
+  .dot-website { background: var(--website); }
+  .dot-github { background: var(--github); }
+
+  /* ============ RIGHT: CHAT PANEL ============ */
+  .chat-panel {
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  .chat-header {
+    padding: 22px 30px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .chat-header h2 {
+    font-family: var(--display);
+    font-size: 18px;
+    margin: 0;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .chat-header p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--text-faint);
+    font-family: var(--mono);
+  }
+
+  .filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filter-chip {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 13px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  }
+  .filter-chip:hover { border-color: var(--border-strong); }
+  .filter-chip.active {
+    background: var(--teal);
+    color: #fff;
+    border-color: var(--teal);
+    font-weight: 600;
+  }
+
+  .chat-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 26px 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .empty-state {
+    margin: auto;
+    text-align: center;
+    color: var(--text-dim);
+    max-width: 400px;
+  }
+  .empty-state .mark-big {
+    width: 52px; height: 52px;
+    margin: 0 auto 18px;
+    border-radius: 13px;
+    background: var(--teal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 22px;
+  }
+  .empty-state h3 {
+    font-family: var(--display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 8px;
+  }
+  .empty-state p { font-size: 13.5px; line-height: 1.65; margin: 0; }
+
+  .msg {
+    max-width: 80%;
+    line-height: 1.6;
+    font-size: 14.5px;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: var(--teal);
+    color: #fff;
+    padding: 11px 16px;
+    border-radius: 14px 14px 3px 14px;
+  }
+  .msg.assistant { align-self: flex-start; width: 100%; }
+  .msg.assistant .bubble {
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    padding: 14px 17px;
+    border-radius: 3px 14px 14px 14px;
+  }
+  .msg.assistant.loading .bubble {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .typing-dots { display: flex; gap: 4px; }
+  .typing-dots span {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--teal);
+    animation: typing-bounce 1.2s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  .sources-used {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .source-pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 9px;
+    border-radius: 11px;
+    background: var(--teal-soft);
+    border: 1px solid var(--teal-soft-border);
+    color: var(--teal-deep);
+    max-width: 230px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-input-row {
+    border-top: 1px solid var(--border);
+    padding: 16px 30px 22px;
+    display: flex;
+    gap: 10px;
+  }
+  .chat-input-row textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 15px;
+    font-family: var(--body);
+    font-size: 14.5px;
+    background: var(--bg);
+    color: var(--text);
+    height: 48px;
+    line-height: 1.4;
+    transition: border-color 0.15s ease;
+  }
+  .chat-input-row textarea:focus {
+    outline: none;
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px var(--teal-soft);
+  }
+  .send-btn {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 12px;
+    background: var(--teal);
+    color: #fff;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease;
+  }
+  .send-btn:hover:not(:disabled) { background: var(--teal-deep); }
+  .send-btn:active:not(:disabled) { transform: translateY(1px); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  ::-webkit-scrollbar { width: 7px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  *:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  /* ============ MOBILE ============ */
+  @media (max-width: 880px) {
+    body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .sources-panel {
+      max-height: none;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      overflow-y: visible;
+      padding: 18px 16px 16px;
+    }
+    .chat-panel { height: auto; min-height: 70vh; }
+    .chat-header { padding: 18px 18px 14px; }
+    .chat-scroll { padding: 18px; min-height: 50vh; }
+    .chat-input-row { padding: 14px 18px 18px; }
+    .msg { max-width: 90%; }
+  }
+
+  @media (max-width: 480px) {
+    .brand h1 { font-size: 19px; }
+    .panel-block { padding: 14px; }
+    .filter-row { width: 100%; }
+    .filter-chip { font-size: 10.5px; padding: 6px 11px; }
+  }
+</style>
+</head>
+<body>
+
+<aside class="sources-panel">
+  <div>
+    <div class="brand">
+      <div class="brand-mark">N</div>
+      <h1>Nexus</h1>
+    </div>
+    <p class="brand-sub">docs · video · web · code → one mind</p>
+  </div>
+
+  <!-- Document upload -->
+  <div class="panel-block">
+    <p class="panel-label"><span class="dot"></span>Upload a file</p>
+    <div class="file-drop" id="fileDrop">
+      <div id="fileDropLabel">
+        <span class="drop-icon">⬆</span>
+        Drop a file or click to choose<br>
+        <span class="ext-tag">.pdf</span><span class="ext-tag">.docx</span><span class="ext-tag">.txt</span>
+      </div>
+      <input type="file" id="fileInput" accept=".pdf,.docx,.txt">
+    </div>
+    <div class="status-line" id="uploadStatus"></div>
+  </div>
+
+  <!-- URL ingest -->
+  <div class="panel-block">
+    <p class="panel-label"><span class="dot"></span>Add a link</p>
+    <div class="ingest-tabs">
+      <button class="ingest-tab active" data-type="youtube">YouTube</button>
+      <button class="ingest-tab" data-type="website">Website</button>
+      <button class="ingest-tab" data-type="github">GitHub</button>
+    </div>
+    <div class="field">
+      <label id="urlLabel">YouTube URL</label>
+      <input type="url" id="urlInput" placeholder="https://www.youtube.com/watch?v=...">
+    </div>
+    <button class="go" id="ingestBtn">Ingest source</button>
+    <div class="status-line" id="ingestStatus"></div>
+  </div>
+
+  <!-- Ledger -->
+  <div class="panel-block">
+    <p class="panel-label"><span class="dot"></span>Ingested so far</p>
+    <div class="ledger" id="ledger">
+      <div class="ledger-empty">Nothing added yet this session</div>
+    </div>
+  </div>
+</aside>
+
+<main class="chat-panel">
+  <div class="chat-header">
+    <div>
+      <h2>Ask your stack</h2>
+      <p id="filterDesc">Searching: documents + youtube + website + github</p>
+    </div>
+    <div class="filter-row" id="filterRow">
+      <button class="filter-chip active" data-filter="all">All</button>
+      <button class="filter-chip" data-filter="document">Docs</button>
+      <button class="filter-chip" data-filter="youtube">YouTube</button>
+      <button class="filter-chip" data-filter="website">Website</button>
+      <button class="filter-chip" data-filter="github">GitHub</button>
+    </div>
+  </div>
+
+  <div class="chat-scroll" id="chatScroll">
+    <div class="empty-state" id="emptyState">
+      <div class="mark-big">N</div>
+      <h3>Your stack is empty</h3>
+      <p>Add a document, video, site, or repo on the left, then ask anything about it. Answers cite exactly which source they came from.</p>
+    </div>
+  </div>
+
+  <div class="chat-input-row">
+    <textarea id="questionInput" placeholder="Ask something about what you've added..." rows="1"></textarea>
+    <button class="send-btn" id="sendBtn" aria-label="Send question">→</button>
+  </div>
+</main>
+
+<script>
+const API_BASE = "http://127.0.0.1:8000/api/v1";
+
+// ---------- State ----------
+let activeIngestType = "youtube";
+let activeFilter = "all";
+const ledgerItems = [];
+
+// ---------- DOM refs ----------
+const fileDrop = document.getElementById("fileDrop");
+const fileInput = document.getElementById("fileInput");
+const fileDropLabel = document.getElementById("fileDropLabel");
+const uploadStatus = document.getElementById("uploadStatus");
+
+const ingestTabs = document.querySelectorAll(".ingest-tab");
+const urlLabel = document.getElementById("urlLabel");
+const urlInput = document.getElementById("urlInput");
+const ingestBtn = document.getElementById("ingestBtn");
+const ingestStatus = document.getElementById("ingestStatus");
+
+const ledger = document.getElementById("ledger");
+const filterRow = document.getElementById("filterRow");
+const filterDesc = document.getElementById("filterDesc");
+
+const chatScroll = document.getElementById("chatScroll");
+const emptyState = document.getElementById("emptyState");
+const questionInput = document.getElementById("questionInput");
+const sendBtn = document.getElementById("sendBtn");
+
+const urlPlaceholders = {
+  youtube: { label: "YouTube URL", placeholder: "https://www.youtube.com/watch?v=..." },
+  website: { label: "Website URL", placeholder: "https://example.com/article" },
+  github: { label: "GitHub repo URL", placeholder: "https://github.com/owner/repo" }
+};
+
+// ---------- Helpers ----------
+function setStatus(el, text, kind) {
+  el.textContent = text;
+  el.className = "status-line show " + kind;
+}
+function clearStatus(el) {
+  el.className = "status-line";
+}
+
+function addLedgerItem(typeKey, label) {
+  if (ledgerItems.length === 0) ledger.innerHTML = "";
+  ledgerItems.push({ typeKey, label });
+  const item = document.createElement("div");
+  item.className = "ticket";
+  item.innerHTML = `<span class="ticket-dot dot-${typeKey}"></span>
+    <span class="ticket-text">${label}</span>
+    <span class="ticket-type">${typeKey}</span>`;
+  ledger.prepend(item);
+}
+
+// ---------- File upload ----------
+fileDrop.addEventListener("click", () => fileInput.click());
+fileDrop.addEventListener("dragover", (e) => { e.preventDefault(); fileDrop.classList.add("drag-over"); });
+fileDrop.addEventListener("dragleave", () => fileDrop.classList.remove("drag-over"));
+fileDrop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  fileDrop.classList.remove("drag-over");
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    handleFileUpload(e.dataTransfer.files[0]);
+  }
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) handleFileUpload(fileInput.files[0]);
+});
+
+async function handleFileUpload(file) {
+  const allowed = [".pdf", ".docx", ".txt"];
+  const ext = "." + file.name.split(".").pop().toLowerCase();
+  if (!allowed.includes(ext)) {
+    setStatus(uploadStatus, `Unsupported file type: ${ext}`, "err");
+    return;
+  }
+
+  setStatus(uploadStatus, `Uploading ${file.name}...`, "pending");
+  fileDropLabel.innerHTML = `<span class="drop-icon">⬆</span>${file.name}`;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(`${API_BASE}/document/upload`, {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+
+    setStatus(uploadStatus, `Added · ${data.chunks_added || data.total_chunks || ""} chunks indexed`, "ok");
+    addLedgerItem("document", file.name);
+  } catch (err) {
+    setStatus(uploadStatus, `Failed: ${err.message}`, "err");
+  }
+}
+
+// ---------- URL ingest tabs ----------
+ingestTabs.forEach(tab => {
+  tab.addEventListener("click", () => {
+    ingestTabs.forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    activeIngestType = tab.dataset.type;
+    urlLabel.textContent = urlPlaceholders[activeIngestType].label;
+    urlInput.placeholder = urlPlaceholders[activeIngestType].placeholder;
+    clearStatus(ingestStatus);
+  });
+});
+
+ingestBtn.addEventListener("click", async () => {
+  const url = urlInput.value.trim();
+  if (!url) {
+    setStatus(ingestStatus, "Paste a URL first", "err");
+    return;
+  }
+
+  ingestBtn.disabled = true;
+  setStatus(ingestStatus, `Fetching ${activeIngestType} source...`, "pending");
+
+  try {
+    const res = await fetch(`${API_BASE}/source/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, source_type: activeIngestType })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Ingestion failed");
+
+    setStatus(ingestStatus, `Added · ${data.chunks_added || 0} chunks indexed`, "ok");
+    addLedgerItem(activeIngestType, url);
+    urlInput.value = "";
+  } catch (err) {
+    setStatus(ingestStatus, `Failed: ${err.message}`, "err");
+  } finally {
+    ingestBtn.disabled = false;
+  }
+});
+
+// ---------- Filter chips ----------
+filterRow.addEventListener("click", (e) => {
+  const chip = e.target.closest(".filter-chip");
+  if (!chip) return;
+  filterRow.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+  chip.classList.add("active");
+  activeFilter = chip.dataset.filter;
+  filterDesc.textContent = activeFilter === "all"
+    ? "Searching: documents + youtube + website + github"
+    : `Searching: ${activeFilter} only`;
+});
+
+// ---------- Chat ----------
+function addUserMessage(text) {
+  emptyState.style.display = "none";
+  const msg = document.createElement("div");
+  msg.className = "msg user";
+  msg.textContent = text;
+  chatScroll.appendChild(msg);
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
+function addLoadingMessage() {
+  const msg = document.createElement("div");
+  msg.className = "msg assistant loading";
+  msg.innerHTML = `<div class="bubble">
+    <span class="typing-dots"><span></span><span></span><span></span></span>
+    thinking</div>`;
+  chatScroll.appendChild(msg);
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+  return msg;
+}
+
+function renderAssistantMessage(container, answer, sources) {
+  container.classList.remove("loading");
+  let html = `<div class="bubble">${escapeHtml(answer)}`;
+  if (sources && sources.length) {
+    html += `<div class="sources-used">` +
+      sources.map(s => `<span class="source-pill" title="${escapeHtml(s)}">${escapeHtml(s)}</span>`).join("") +
+      `</div>`;
+  }
+  html += `</div>`;
+  container.innerHTML = html;
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function sendQuestion() {
+  const question = questionInput.value.trim();
+  if (!question) return;
+
+  questionInput.value = "";
+  questionInput.style.height = "48px";
+  addUserMessage(question);
+  const loadingEl = addLoadingMessage();
+  sendBtn.disabled = true;
+
+  try {
+    if (activeFilter === "all") {
+      const [docRes, extRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/query/documents`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        }),
+        fetch(`${API_BASE}/query/external`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question })
+        })
+      ]);
+
+      let combinedAnswer = "";
+      let combinedSources = [];
+
+      if (extRes.status === "fulfilled" && extRes.value.ok) {
+        const extData = await extRes.value.json();
+        if (extData.status !== "empty_database") {
+          combinedAnswer = extData.answer;
+          combinedSources = extData.sources || [];
+        }
+      }
+      if (docRes.status === "fulfilled" && docRes.value.ok) {
+        const docData = await docRes.value.json();
+        if (docData.status !== "empty_database") {
+          combinedAnswer = combinedAnswer
+            ? combinedAnswer + "\n\n" + docData.answer
+            : docData.answer;
+          combinedSources = combinedSources.concat(docData.sources || []);
+        }
+      }
+      if (!combinedAnswer) combinedAnswer = "I could not find any relevant information in the selected database.";
+      renderAssistantMessage(loadingEl, combinedAnswer, [...new Set(combinedSources)]);
+    } else if (activeFilter === "document") {
+      const res = await fetch(`${API_BASE}/query/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Query failed");
+      renderAssistantMessage(loadingEl, data.answer, data.sources || []);
+    } else {
+      const res = await fetch(`${API_BASE}/query/external?source_type=${activeFilter}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Query failed");
+      renderAssistantMessage(loadingEl, data.answer, data.sources || []);
+    }
+  } catch (err) {
+    renderAssistantMessage(loadingEl, `Something went wrong: ${err.message}`, []);
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+sendBtn.addEventListener("click", sendQuestion);
+questionInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendQuestion();
+  }
+});
+questionInput.addEventListener("input", () => {
+  questionInput.style.height = "48px";
+  questionInput.style.height = Math.min(questionInput.scrollHeight, 140) + "px";
+});
+</script>
+
+</body>
+</html>
