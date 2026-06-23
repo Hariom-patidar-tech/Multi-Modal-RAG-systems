@@ -3,13 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.models import Base
 from app.db.session import engine
 
-# Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 from app.api.v1.health import router as health_router
 from app.api.v1.document import router as document_router
 from app.api.v1.query import router as query_router
 from app.api.v1.source import router as source_router
 from app.core.config import settings
 from app.core.logger import logger
+
 
 app = FastAPI(
     title="Multi-Source RAG Platform",
