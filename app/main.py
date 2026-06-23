@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.models import Base
 from app.db.session import engine
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 from app.api.v1.health import router as health_router
 from app.api.v1.document import router as document_router
 from app.api.v1.query import router as query_router
@@ -16,7 +16,7 @@ app = FastAPI(
     version="1.0.0",
     description="Enterprise-grade modular RAG platform with Hybrid Search, Reranking & Multi-Source Ingestion"
 )
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
