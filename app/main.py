@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.models import Base
 from app.db.session import engine
-from fastapi.responses import FileResponse
+
 Base.metadata.create_all(bind=engine)
 from app.api.v1.health import router as health_router
 from app.api.v1.document import router as document_router
@@ -25,10 +25,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-@app.get("/", tags=["Frontend"])
-async def serve_frontend():
-    
-    return FileResponse("index.html")
+
 
 @app.get("/", tags=["Root Gateway"])
 async def root():
