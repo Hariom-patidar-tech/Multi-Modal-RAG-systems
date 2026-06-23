@@ -5,7 +5,6 @@ from app.db.models import Document
 from app.core.logger import logger
 from app.utils.file_utils import save_uploaded_file
 
-# Retrieval aur Ingestion components
 from app.rag.retriever import HybridRetriever
 from app.rag.llm import LLMEngine
 from app.rag.vectordb import VectorDBEngine
@@ -13,9 +12,7 @@ from app.rag.reranker import RerankerEngine
 
 BASE_UPLOAD_DIR = "storage/uploads"
 
-# ==========================================
-# 1. CORE RAG PIPELINE ORCHESTRATOR
-# ==========================================
+
 class RAGPipeline:
     def __init__(self):
         self.vector_db = VectorDBEngine()
@@ -28,15 +25,12 @@ class RAGPipeline:
         self.lexical_chunks = []
 
     def run_ingestion(self, chunks: List[str], source_name: str, source_type: str, doc_id: int) -> list:
-        """
-        Generic ingestion method jo kisi bhi source ke chunks ko process karega.
-        """
+        
         logger.info(f"Processing ingestion for: {source_name} | Type: {source_type} | ID: {doc_id}")
         
         if not chunks:
             return []
 
-        # Vector DB mein metadata ke saath store karna
         self.vector_db.upsert_chunks(
             chunks=chunks,
             source_name=source_name,
@@ -74,12 +68,9 @@ class RAGPipeline:
             logger.error(f"Pipeline Error: {str(e)}")
             return {"question": question, "answer": "Error processing request.", "citations": []}
 
-# Singleton Instance
 _rag_pipeline = RAGPipeline()
 
-# ==========================================
-# 2. UNIVERSAL INGESTION WRAPPER
-# ==========================================
+
 def ingest_source_to_pipeline(
     db: Session, 
     source_name: str, 
@@ -87,9 +78,7 @@ def ingest_source_to_pipeline(
     content_chunks: List[str], 
     metadata: dict = {}
 ) -> dict:
-    """
-    Yeh function generic hai. Aap PDF, YouTube, ya GitHub sabke liye ise use kar sakte hain.
-    """
+   
     try:
         # DB Entry
         db_doc = Document(
@@ -102,7 +91,6 @@ def ingest_source_to_pipeline(
         db.commit()
         db.refresh(db_doc)
         
-        # Pipeline execution
         _rag_pipeline.run_ingestion(content_chunks, source_name, source_type, db_doc.id)
         
         return {"document_id": db_doc.id, "status": "Success"}
@@ -110,7 +98,6 @@ def ingest_source_to_pipeline(
         db.rollback()
         raise Exception(f"Ingestion Failed: {str(e)}")
 
-# PDF ke liye specific wrapper (backward compatible — purane PDF-only callers ke liye)
 def process_pdf(file, db: Session) -> dict:
     from app.loaders.pdf_loader import PdfLoader
     from app.rag.chunker import create_chunks
@@ -126,18 +113,12 @@ def process_pdf(file, db: Session) -> dict:
     return ingest_source_to_pipeline(db, file.filename, "document", chunks, {"path": file_path})
 
 
-# ==========================================
-# 3. UNIFIED DOCUMENT UPLOAD (PDF / DOCX / TXT)
-# ==========================================
+
 SUPPORTED_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 
 def process_document(file, db: Session) -> dict:
-    """
-    Generic document ingestion: file extension ke hisaab se sahi loader
-    (PdfLoader / DocxLoader / load_txt_text) choose karta hai.
-    PDF, DOCX, aur TXT — teeno yahin se guzarte hain.
-    """
+    
     from app.rag.chunker import create_chunks
 
     filename = file.filename or ""
@@ -150,8 +131,7 @@ def process_document(file, db: Session) -> dict:
             f"{', '.join(sorted(SUPPORTED_DOCUMENT_EXTENSIONS))}"
         )
 
-    # File ko uske type ke hisaab se subfolder mein save karo
-    subfolder = ext.lstrip(".")  # "pdf" / "docx" / "txt"
+    subfolder = ext.lstrip(".") 
     file_path = os.path.join(BASE_UPLOAD_DIR, subfolder, filename)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     save_uploaded_file(file, file_path)

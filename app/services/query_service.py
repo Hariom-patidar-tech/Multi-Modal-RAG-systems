@@ -5,7 +5,6 @@ from app.rag.vectordb import VectorDBEngine
 from app.core.logger import logger
 from app.core.config import settings
 
-# 1. VectorDBEngine ka global instance
 _vector_db = VectorDBEngine()
 
 
@@ -16,7 +15,6 @@ def ask_question(question: str, db: Session, doc_id: Optional[int] = None, sourc
     """
     logger.info(f"Triggering query processing engine for: '{question}' | doc_id={doc_id} | source_type={source_type}")
     try:
-        # ChromaDB se similarity search (doc_id + source_type filter ke sath)
         raw_results = _vector_db.query_similarity(
             question,
             top_k=top_k,
@@ -35,8 +33,7 @@ def ask_question(question: str, db: Session, doc_id: Optional[int] = None, sourc
                 "status": "empty_database"
             }
 
-        # 2. Context Aggregation — har chunk ke saath uska source label bhi dete hain,
-        # taaki LLM ko pata chale kaunsa context kis source (youtube/website/github) se aaya
+       
         context_parts = []
         for doc, meta in zip(documents, metadatas):
             src = meta.get("source", "Unknown Source") if meta else "Unknown Source"
@@ -44,14 +41,12 @@ def ask_question(question: str, db: Session, doc_id: Optional[int] = None, sourc
             context_parts.append(f"[Source: {src} | Type: {stype}]\n{doc}")
         context = "\n---\n".join(context_parts)
 
-        # 3. Sources Filtering
         sources = list(set([
             meta.get("source", "Unknown Source")
             for meta in metadatas
             if meta
         ]))
 
-        # 4. System Prompt: Force Roman Script
         system_prompt = (
             "You are an expert AI platform assistant. Answer the user's question based strictly on the provided context.\n"
             "The context below may come from multiple sources (YouTube video transcripts, websites, GitHub code, "
@@ -69,7 +64,6 @@ def ask_question(question: str, db: Session, doc_id: Optional[int] = None, sourc
             f"Context:\n{context}"
         )
 
-        # 5. Groq API Call
         client = groq.Groq(api_key=settings.GROQ_API_KEY)
 
         chat_completion = client.chat.completions.create(
