@@ -11,13 +11,12 @@ from app.api.v1.source import router as source_router
 from app.core.config import settings
 from app.core.logger import logger
 
-
 app = FastAPI(
     title="Multi-Source RAG Platform",
     version="1.0.0",
     description="Enterprise-grade modular RAG platform with Hybrid Search, Reranking & Multi-Source Ingestion"
 )
-
+Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
     CORSMiddleware,
