@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 from rank_bm25 import BM25Okapi
 from app.rag.vectordb import VectorDBEngine
-from app.rag.reranker import RerankerEngine  # Jo humne pichle step me banaya
+from app.rag.reranker import RerankerEngine  
 from app.core.logger import logger
 
 class HybridRetriever:
@@ -12,16 +12,12 @@ class HybridRetriever:
         self.corpus_chunks = []
 
     def fit_bm25(self, chunks: List[str]):
-        """
-        Database me store saare current chunks se BM25 index ko prepare/fit karta hai.
-        Jab bhi koi naya document upload/ingest hoga, is index ko refresh karna hoga.
-        """
+        
         if not chunks:
             logger.warning("No chunks provided to fit BM25 index.")
             return
         
         self.corpus_chunks = chunks
-        # Tokenizing documents by lowercasing and splitting on whitespace
         tokenized_corpus = [chunk.lower().split() for chunk in chunks]
         self.bm25 = BM25Okapi(tokenized_corpus)
         logger.info(f"BM25 Index successfully fitted with {len(chunks)} chunks.")
@@ -42,7 +38,7 @@ class HybridRetriever:
         
         results = []
         for chunk, score in ranked_pairs[:top_k]:
-            if score > 0:  # Only pick nodes that have at least some keyword overlap
+            if score > 0:  
                 results.append({
                     "content": chunk,
                     "metadata": {"source": "BM25 Keyword Engine", "source_type": "text"},
@@ -71,7 +67,7 @@ class HybridRetriever:
                 results.append({
                     "content": doc,
                     "metadata": meta or {},
-                    "score": float(1 - dist),  # Distance matrix inversion to get absolute score
+                    "score": float(1 - dist), 
                     "type": "semantic"
                 })
         return results
@@ -83,13 +79,11 @@ class HybridRetriever:
         """
         logger.info(f"Executing Multi-Source Hybrid Search for: '{query}'")
         
-        # Reranker ko high-quality pool dene ke liye thode zyada candidates uthayenge
-        candidate_pool_size = final_top_k * 2  # e.g., Top 10
+        candidate_pool_size = final_top_k * 2  
         
         vector_candidates = self._vector_search(query, top_k=candidate_pool_size, source_type_filter=source_type_filter)
         bm25_candidates = self._bm25_search(query, top_k=candidate_pool_size)
 
-        # Step 2: Merge streams and Deduplicate identical contents
         seen_contents = set()
         combined_candidates = []
 
@@ -98,10 +92,8 @@ class HybridRetriever:
                 seen_contents.add(item["content"])
                 combined_candidates.append(item)
 
-        # Step 3: Run the production-grade cross encoder pipeline
         logger.info(f"Passing {len(combined_candidates)} deduplicated candidates to Reranker...")
         
-        # FIXED: Changed 'top_n' to 'top_k' to match RerankerEngine implementation smoothly
         reranked_results = self.reranker.rerank(
             query=query,
             documents=combined_candidates,

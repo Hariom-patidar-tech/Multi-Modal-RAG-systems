@@ -28,21 +28,17 @@ class RAGPipeline:
 
         logger.info(f"Starting pipeline core ingestion execution for: {filename}")
         
-        # 1. Page-aware loader initialize aur text extraction
         loader = PdfLoader()
         pages = loader.load(file_path)
         
-        # 2. Saare pages ke text ko single string me combine karna safely
         full_text = "\n".join([page["text"] for page in pages])
         
-        # 3. Text ko semantic sub-chunks me split karna
         chunks = create_chunks(full_text)
         
         if not chunks:
             logger.warning(f"No extractable tokens or chunks generated for {filename}")
             return []
 
-        # 4. ChromaDB/Vector DB storage synchronization mapping
         self.vector_db.upsert_chunks(
             chunks=chunks,
             source_name=filename,
@@ -50,10 +46,8 @@ class RAGPipeline:
             doc_id=doc_id
         )
 
-        # 5. BM25 algorithm execution index matching matrix update
         self.initialize_lexical_index(chunks)
 
-        # 6. Chunks list return karna database listing mapping ke liye
         return chunks
 
     def initialize_lexical_index(self, chunks: list):

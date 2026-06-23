@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.models import Base
 from app.db.session import engine
-
+from fastapi.responses import FileResponse
 Base.metadata.create_all(bind=engine)
 # Saare API Router module imports top par cleanly aggregated hain
 from app.api.v1.health import router as health_router
@@ -28,6 +28,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.get("/", tags=["Frontend"])
+async def serve_frontend():
+    """
+    Serves the embedded index.html file for the frontend.
+    """
+    return FileResponse("index.html")
 
 # Base Operational Root Endpoint
 @app.get("/", tags=["Root Gateway"])
