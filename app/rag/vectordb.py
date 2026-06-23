@@ -50,13 +50,11 @@ class VectorDBEngine:
             conditions.append({"doc_id": int(doc_id)})
 
         if source_type:
-            # Agar source_type list mein hai (e.g., ["youtube", "website", "github"]), $in use karo
             if isinstance(source_type, list):
                 conditions.append({"source_type": {"$in": source_type}})
             else:
                 conditions.append({"source_type": source_type})
 
-        # Filter construct karo
         where_filter = {"$and": conditions} if len(conditions) > 1 else (conditions[0] if conditions else None)
 
         return self.collection.query(
