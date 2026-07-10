@@ -1,4 +1,4 @@
-# 🚀 Enterprise Multi-Source RAG Platform
+#  Enterprise Multi-Modal-RAG-Systems
 
 > A Production-Ready, Enterprise-Grade Retrieval-Augmented Generation (RAG) Platform built with FastAPI, ChromaDB, Hybrid Search, Reranking, and Multiple Data Source Integration.
 
@@ -22,23 +22,23 @@ The architecture is fully modular, scalable, and production-ready.
 
 # ✨ Features
 
-- ✅ Enterprise Grade Architecture
-- ✅ FastAPI REST APIs
-- ✅ Multi-Source Document Ingestion
-- ✅ Hybrid Search (Vector + BM25)
-- ✅ ChromaDB Vector Database
-- ✅ Advanced Reranking Pipeline
-- ✅ Semantic Search
-- ✅ Modular Folder Structure
-- ✅ Multiple File Format Support
-- ✅ REST API Documentation (Swagger)
-- ✅ Configurable LLM Integration
-- ✅ Logging & Monitoring
-- ✅ Production Ready APIs
+-  Enterprise Grade Architecture
+-  FastAPI REST APIs
+-  Multi-Source Document Ingestion
+-  Hybrid Search (Vector + BM25)
+-  ChromaDB Vector Database
+-  Advanced Reranking Pipeline
+-  Semantic Search
+-  Modular Folder Structure
+-  Multiple File Format Support
+   REST API Documentation (Swagger)
+-  Configurable LLM Integration
+-  Logging & Monitoring
+-  Production Ready APIs
 
 ---
 
-# 🏗 Project Architecture
+#  Project Architecture
 
 ```
                 +----------------------+
@@ -156,6 +156,8 @@ Multi-Source-RAG/
 - DOCX
 - TXT
 - Web URLs
+- Youtube url
+- github url
 - Knowledge Base
 - Custom Documents
 
@@ -208,9 +210,9 @@ Manage available data sources.
 ## Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/Multi-Source-RAG.git
+git clone https://github.com/Hariom-patidar-tech/Multi-Modal-RAG-Systems.git
 
-cd Multi-Source-RAG
+cd Multi-Modal-RAG-Systems
 ```
 
 ---
@@ -314,9 +316,6 @@ Contributions are welcome!
 
 ---
 
-# 📄 License
-
-This project is licensed under the MIT License.
 
 ---
 
@@ -328,7 +327,7 @@ AI/ML Engineer | FastAPI Developer | RAG Systems | NLP | Vector Databases
 
 GitHub: https://github.com/Hariom-patidar-tech
 
-LinkedIn: https://www.linkedin.com/
+LinkedIn: https://www.linkedin.com/in/hariom-patidar-6574ba290/
 
 ---
 
