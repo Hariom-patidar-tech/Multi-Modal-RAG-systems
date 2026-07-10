@@ -41,6 +41,7 @@ The architecture is fully modular, scalable, and production-ready.
 #  Images
 <img width="259" height="449" alt="image" src="https://github.com/user-attachments/assets/d10494e8-4a9e-4807-8a0b-998badd97706" />
 <img width="949" height="445" alt="image" src="https://github.com/user-attachments/assets/76b7152d-3797-430b-8b0d-b389e80fb676" />
+<img width="728" height="302" alt="image" src="https://github.com/user-attachments/assets/ccda21bf-568d-418f-b90a-9629eb9a2e69" />
 
 
 ---
