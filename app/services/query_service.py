@@ -1,6 +1,6 @@
 import groq
-from typing import Optional, Any
-from sqlalchemy.orm import Session
+from typing import Any
+
 from app.rag.vectordb import VectorDBEngine
 from app.core.logger import logger
 from app.core.config import settings
@@ -8,44 +8,75 @@ from app.core.config import settings
 _vector_db = VectorDBEngine()
 
 
-def ask_question(question: str, db: Session, doc_id: Optional[int] = None, source_type: Any = None, top_k: int = 6) -> dict:
+def ask_question(
+    question: str,
+    source_type: Any = None,
+    top_k: int = 6
+) -> dict:
     """
-    RAG query: specific doc_id (single document) aur/ya source_type
-    (document, youtube, website, github, etc.) ke sath filter hota hai.
+    RAG query filtered by source_type only.
+    PostgreSQL/doc_id completely removed.
     """
-    logger.info(f"Triggering query processing engine for: '{question}' | doc_id={doc_id} | source_type={source_type}")
+
+    logger.info(
+        f"Triggering query processing engine for: '{question}' | source_type={source_type}"
+    )
+
     try:
+
         raw_results = _vector_db.query_similarity(
-            question,
+            query_text=question,
             top_k=top_k,
-            doc_id=doc_id,
             source_type=source_type,
         )
 
-        documents = raw_results.get("documents", [[]])[0] if raw_results.get("documents") else []
-        metadatas = raw_results.get("metadatas", [[]])[0] if raw_results.get("metadatas") else []
+        documents = (
+            raw_results.get("documents", [[]])[0]
+            if raw_results.get("documents")
+            else []
+        )
+
+        metadatas = (
+            raw_results.get("metadatas", [[]])[0]
+            if raw_results.get("metadatas")
+            else []
+        )
 
         if not documents:
-            logger.warning(f"No relevant context found for doc_id={doc_id} | source_type={source_type}")
+
+            logger.warning(
+                f"No relevant context found | source_type={source_type}"
+            )
+
             return {
-                "answer": "I could not find any relevant information in the selected database.",
+                "answer": "I could not find any relevant information in the uploaded source.",
                 "sources": [],
                 "status": "empty_database"
             }
 
-       
         context_parts = []
+
         for doc, meta in zip(documents, metadatas):
+
             src = meta.get("source", "Unknown Source") if meta else "Unknown Source"
+
             stype = meta.get("source_type", "unknown") if meta else "unknown"
-            context_parts.append(f"[Source: {src} | Type: {stype}]\n{doc}")
+
+            context_parts.append(
+                f"[Source: {src} | Type: {stype}]\n{doc}"
+            )
+
         context = "\n---\n".join(context_parts)
 
-        sources = list(set([
-            meta.get("source", "Unknown Source")
-            for meta in metadatas
-            if meta
-        ]))
+        sources = list(
+            set(
+                [
+                    meta.get("source", "Unknown Source")
+                    for meta in metadatas
+                    if meta
+                ]
+            )
+        )
 
         system_prompt = (
             "You are an expert AI platform assistant. Answer the user's question based strictly on the provided context.\n"
@@ -64,19 +95,31 @@ def ask_question(question: str, db: Session, doc_id: Optional[int] = None, sourc
             f"Context:\n{context}"
         )
 
-        client = groq.Groq(api_key=settings.GROQ_API_KEY)
+        client = groq.Groq(
+            api_key=settings.GROQ_API_KEY
+        )
 
         chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
+
             model="llama-3.3-70b-versatile",
-            temperature=0.3
+
+            temperature=0.3,
+
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": question
+                }
+            ]
         )
 
         answer = chat_completion.choices[0].message.content
-        logger.info("Successfully fetched synthesis model answer from Groq LLM.")
+
+        logger.info("Successfully generated answer.")
 
         return {
             "question": question,
@@ -86,5 +129,11 @@ def ask_question(question: str, db: Session, doc_id: Optional[int] = None, sourc
         }
 
     except Exception as e:
-        logger.error(f"Critical breakdown inside query processing service: {str(e)}")
-        raise Exception(f"Query Pipeline Collapse Error: {str(e)}")
+
+        logger.error(
+            f"Critical breakdown inside query processing service: {str(e)}"
+        )
+
+        raise Exception(
+            f"Query Pipeline Collapse Error: {str(e)}"
+        )

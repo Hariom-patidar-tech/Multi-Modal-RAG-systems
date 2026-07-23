@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from typing import Optional, Literal
-from sqlalchemy.orm import Session
-from app.db.session import get_db
+
 from app.schemas.query import QueryRequest
 from app.services.query_service import ask_question
 
@@ -10,8 +9,8 @@ router = APIRouter()
 @router.post("/documents")
 async def query_documents(
     request: QueryRequest,
-    doc_id: Optional[int] = None, 
-    db: Session = Depends(get_db)
+    
+    
 ):
     """
     Sirf PDF/Document mein search.
@@ -19,8 +18,8 @@ async def query_documents(
     """
     return ask_question(
         question=request.question,
-        db=db,
-        doc_id=doc_id,
+        
+        
         source_type="document"
     )
 
@@ -32,7 +31,7 @@ async def query_external(
         default=None,
         description="Optional: sirf ek specific source mein search karne ke liye (youtube/website/github). Khali rakho to teeno mein search hoga."
     ),
-    db: Session = Depends(get_db)
+    
 ):
     """
     YouTube, Website aur GitHub mein search.
@@ -43,6 +42,6 @@ async def query_external(
 
     return ask_question(
         question=request.question,
-        db=db,
+        
         source_type=effective_filter
     )

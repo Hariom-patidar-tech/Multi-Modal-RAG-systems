@@ -1,64 +1,135 @@
-from typing import List, Dict, Any, Optional
+from typing import List
 import chromadb
+
 from app.core.config import settings
 from app.core.logger import logger
 from app.rag.embedding import EmbeddingEngine
 
+
 class VectorDBEngine:
+
     def __init__(self):
         self.chroma_path = settings.CHROMA_DB_PATH
         self.collection_name = settings.COLLECTION_NAME
-        self.client = chromadb.PersistentClient(path=self.chroma_path)
-        self.embedding_engine = EmbeddingEngine()
-        self.collection = self.client.get_or_create_collection(name=self.collection_name)
-        logger.info(f"ChromaDB Collection '{self.collection_name}' is ready.")
 
-    def upsert_chunks(self, chunks, source_name, source_type, doc_id=None, chunk_metadatas=None):
-        embeddings = self.embedding_engine.get_embeddings(chunks).tolist()
-        ids, metadatas = [], []
+        self.embedding_engine = EmbeddingEngine()
+
+        self.client = chromadb.PersistentClient(
+            path=self.chroma_path
+        )
+
+        logger.info(
+            f"Chroma Collection '{self.collection_name}' initialized."
+        )
+
+    # -------------------------------------------------
+    # Always return latest collection
+    # -------------------------------------------------
+    def get_collection(self):
+        return self.client.get_or_create_collection(
+            name=self.collection_name
+        )
+
+    # -------------------------------------------------
+    # Reset Collection
+    # -------------------------------------------------
+    def reset_collection(self):
+        """
+        Delete previous vectors and create a fresh collection.
+        """
+
+        try:
+            self.client.delete_collection(self.collection_name)
+            logger.info("Previous Chroma collection deleted.")
+        except Exception:
+            pass
+
+        self.client.get_or_create_collection(
+            name=self.collection_name
+        )
+
+        logger.info("Fresh Chroma collection created.")
+
+    # -------------------------------------------------
+    # Upsert Chunks
+    # -------------------------------------------------
+    def upsert_chunks(
+        self,
+        chunks: List[str],
+        source_name: str,
+        source_type: str,
+        chunk_metadatas=None
+    ):
+
+        collection = self.get_collection()
+
+        embeddings = self.embedding_engine.get_embeddings(
+            chunks
+        ).tolist()
+
+        ids = []
+        metadatas = []
 
         for i, chunk in enumerate(chunks):
-            chunk_id = f"{source_name}_{source_type}_{i}"
-            ids.append(chunk_id)
-            meta = {
+
+            ids.append(f"{source_type}_{i}")
+
+            metadata = {
                 "source": source_name,
                 "source_type": source_type,
-                "chunk_id": i,
-                "doc_id": int(doc_id) if doc_id is not None else None
+                "chunk_id": i
             }
+
             if chunk_metadatas and i < len(chunk_metadatas):
-                meta.update(chunk_metadatas[i])
-            metadatas.append(meta)
+                metadata.update(chunk_metadatas[i])
 
-        self.collection.upsert(documents=chunks, embeddings=embeddings, metadatas=metadatas, ids=ids)
-        return ids
+            metadatas.append(metadata)
 
+        collection.upsert(
+            ids=ids,
+            documents=chunks,
+            embeddings=embeddings,
+            metadatas=metadatas
+        )
+
+        logger.info(f"{len(chunks)} chunks stored.")
+
+    # -------------------------------------------------
+    # Query
+    # -------------------------------------------------
     def query_similarity(
         self,
         query_text: str,
         top_k: int = 4,
-        doc_id: Optional[int] = None,
-        source_type: Any = None
-    ) -> Dict[str, Any]:
-        """
-        Query similarity with optional doc_id and source_type filtering.
-        """
-        query_vector = self.embedding_engine.get_query_embedding(query_text)
-        conditions = []
+        source_type=None
+    ):
 
-        if doc_id is not None:
-            conditions.append({"doc_id": int(doc_id)})
+        collection = self.get_collection()
+
+        query_vector = self.embedding_engine.get_query_embedding(
+            query_text
+        )
+
+        where = None
 
         if source_type:
+
             if isinstance(source_type, list):
-                conditions.append({"source_type": {"$in": source_type}})
+
+                where = {
+                    "source_type": {
+                        "$in": source_type
+                    }
+                }
+
             else:
-                conditions.append({"source_type": source_type})
 
-        where_filter = {"$and": conditions} if len(conditions) > 1 else (conditions[0] if conditions else None)
+                where = {
+                    "source_type": source_type
+                }
 
-        return self.collection.query(
+        return collection.query(
             query_embeddings=[query_vector],
             n_results=top_k,
-            where=where_filter
+            where=where
         )

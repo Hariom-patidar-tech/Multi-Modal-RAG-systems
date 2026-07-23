@@ -5,9 +5,7 @@ from fastapi import (
     Depends,
     HTTPException
 )
-from sqlalchemy.orm import Session
 
-from app.db.session import get_db
 
 from app.services.ingestion_service import process_document
 
@@ -17,7 +15,7 @@ router = APIRouter()
 @router.post("/upload")
 async def upload_documents(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    
 ):
     """
     Upload document (PDF, DOCX, ya TXT) and ingest into RAG pipeline.
@@ -26,7 +24,7 @@ async def upload_documents(
     try:
         result = process_document(
             file=file,
-            db=db
+            
         )
         return result
     except ValueError as e:
