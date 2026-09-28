@@ -1,219 +1,49 @@
-name: Deploy Multi-Modal RAG to EC2
+name: Test EC2 SSH
 
 on:
-  push:
-    branches:
-      - main
-
   workflow_dispatch:
 
 jobs:
-  deploy:
-    name: Deploy Frontend + Backend
+  test-ssh:
+    name: Test SSH to EC2
     runs-on: ubuntu-24.04
 
     steps:
 
-      # ==========================================
-      # 1. Checkout GitHub Repository
-      # ==========================================
-
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      # ==========================================
-      # 2. Setup SSH
-      # ==========================================
-
-      - name: Setup SSH
-        shell: bash
+      - name: Create PEM File
         run: |
           mkdir -p ~/.ssh
 
-          printf '%s\n' "${{ secrets.RAG }}" > ~/.ssh/rag.pem
+          printf '%s\n' '${{ secrets.RAG }}' > ~/.ssh/rag.pem
 
           chmod 600 ~/.ssh/rag.pem
 
-      # ==========================================
-      # 3. Test EC2 Connection
-      # ==========================================
+          echo "PEM file created"
+          ls -l ~/.ssh/rag.pem
 
-      - name: Test EC2 Connection
-        shell: bash
+      - name: Check PEM
         run: |
+          ssh-keygen -y -f ~/.ssh/rag.pem > /tmp/public_key.pub
+
+          echo "PEM key format is valid"
+
+      - name: Test SSH
+        run: |
+          echo "Connecting to EC2..."
+
           ssh \
+            -vv \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
+            -o BatchMode=yes \
             -i ~/.ssh/rag.pem \
             ubuntu@${{ secrets.EC2_HOST }} \
-            "echo '======================================'; echo 'SSH CONNECTION SUCCESSFUL'; echo '======================================'"
+            "echo SSH_SUCCESS"
 
-      # ==========================================
-      # 4. Deploy Application
-      # ==========================================
-
-      - name: Deploy Application
-        shell: bash
+      - name: Success
+        if: success()
         run: |
-
-          ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=20 \
-            -i ~/.ssh/rag.pem \
-            ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-
-            set -e
-
-            echo "======================================"
-            echo "CONNECTED TO AWS EC2"
-            echo "======================================"
-
-            PROJECT_DIR="/home/ubuntu/rag-platform"
-
-            # ==================================
-            # Clone repository first time
-            # ==================================
-
-            if [ ! -d "$PROJECT_DIR/.git" ]; then
-
-              echo "Repository not found."
-              echo "Cloning repository..."
-
-              git clone \
-                https://github.com/${{ github.repository }}.git \
-                "$PROJECT_DIR"
-
-            else
-
-              echo "Repository already exists."
-              echo "Updating repository..."
-
-              cd "$PROJECT_DIR"
-
-              git fetch origin
-
-              git reset --hard origin/main
-
-            fi
-
-            cd "$PROJECT_DIR"
-
-            echo "Current commit:"
-            git log -1 --oneline
-
-            # ==================================
-            # BACKEND
-            # ==================================
-
-            echo "======================================"
-            echo "BACKEND DEPLOYMENT"
-            echo "======================================"
-
-            cd "$PROJECT_DIR/backend"
-
-            # Create virtual environment
-            if [ ! -d "venv" ]; then
-
-              echo "Creating Python virtual environment..."
-
-              python3 -m venv venv
-
-            fi
-
-            # Activate virtual environment
-            source venv/bin/activate
-
-            # Upgrade pip
-            python -m pip install --upgrade pip
-
-            # Install dependencies
-            if [ -f requirements.txt ]; then
-
-              echo "Installing backend dependencies..."
-
-              pip install -r requirements.txt
-
-            else
-
-              echo "ERROR: backend/requirements.txt not found."
-
-              exit 1
-
-            fi
-
-            # Restart backend
-            if sudo systemctl list-unit-files | grep -q "^rag-backend.service"; then
-
-              echo "Restarting backend..."
-
-              sudo systemctl daemon-reload
-
-              sudo systemctl restart rag-backend
-
-              sudo systemctl enable rag-backend
-
-              sudo systemctl status rag-backend --no-pager
-
-            else
-
-              echo "WARNING: rag-backend.service not found."
-
-              echo "Backend dependencies installed."
-
-            fi
-
-            # ==================================
-            # FRONTEND
-            # ==================================
-
-            echo "======================================"
-            echo "FRONTEND DEPLOYMENT"
-            echo "======================================"
-
-            cd "$PROJECT_DIR/frontend"
-
-            echo "Installing frontend dependencies..."
-
-            npm install
-
-            echo "Building frontend..."
-
-            npm run build
-
-            # ==================================
-            # Copy frontend build to Nginx
-            # ==================================
-
-            echo "Copying frontend build..."
-
-            sudo mkdir -p /var/www/rag-frontend
-
-            sudo rm -rf /var/www/rag-frontend/*
-
-            sudo cp -r dist/* /var/www/rag-frontend/
-
-            sudo chown -R www-data:www-data /var/www/rag-frontend
-
-            # ==================================
-            # NGINX
-            # ==================================
-
-            echo "Testing Nginx..."
-
-            sudo nginx -t
-
-            echo "Reloading Nginx..."
-
-            sudo systemctl reload nginx
-
-            # ==================================
-            # DONE
-            # ==================================
-
-            echo "======================================"
-            echo "DEPLOYMENT SUCCESSFUL"
-            echo "======================================"
-
-          EOF
+          echo "================================="
+          echo "EC2 SSH CONNECTION SUCCESSFUL"
+          echo "================================="
