@@ -33,6 +33,21 @@ jobs:
           timeout 15 bash -c "</dev/tcp/$EC2_HOST/22"
           echo "Port 22 reachable"
 
+      - name: Write .env on EC2
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          test -n "$GROQ_API_KEY" || { echo "ERROR: GitHub secret GROQ_API_KEY set nahi hai"; exit 1; }
+          CLEAN_KEY="$(printf '%s' "$GROQ_API_KEY" | tr -d '\r\n ')"
+          printf 'GROQ_API_KEY=%s\n' "$CLEAN_KEY" | ssh -i ~/.ssh/rag.pem \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            -o BatchMode=yes \
+            "$EC2_USER@$EC2_HOST" \
+            'umask 077; cat > /home/ubuntu/rag.env'
+          echo ".env EC2 par save ho gaya"
+
       - name: Deploy Frontend and Backend
         run: |
           ssh -i ~/.ssh/rag.pem \
@@ -56,6 +71,12 @@ jobs:
           fi
           cd "$PROJECT_DIR"
           git log -1 --oneline
+
+          # ---- .env copy ----
+          test -f /home/ubuntu/rag.env || { echo "ERROR: /home/ubuntu/rag.env nahi mila"; exit 1; }
+          cp /home/ubuntu/rag.env "$PROJECT_DIR/.env"
+          chmod 600 "$PROJECT_DIR/.env"
+          echo ".env ready"
 
           # ---- Disk saaf karo ----
           rm -rf ~/.cache/pip
@@ -114,11 +135,6 @@ jobs:
           echo "Disk after install:"
           df -h /
 
-          # ---- .env warning ----
-          if [ ! -f .env ]; then
-            echo "WARNING: $PROJECT_DIR/.env nahi mila. Groq/LLM API keys ke bina backend crash ho sakta hai."
-          fi
-
           # ---- systemd service (sirf pehli baar banega) ----
           if [ ! -f /etc/systemd/system/rag-backend.service ]; then
           sudo tee /etc/systemd/system/rag-backend.service > /dev/null <<UNIT
@@ -142,14 +158,14 @@ jobs:
           sudo systemctl enable rag-backend
           sudo systemctl restart rag-backend
 
-          # ---- Health check (60 sec tak retry) ----
+          # ---- Health check (2 minute tak retry) ----
           echo "Waiting for backend health check..."
-          for i in $(seq 1 12); do
+          for i in $(seq 1 24); do
             if curl -fs "http://127.0.0.1:$APP_PORT/api/v1/health" > /dev/null; then
               echo "Backend is healthy"
               break
             fi
-            if [ "$i" -eq 12 ]; then
+            if [ "$i" -eq 24 ]; then
               echo "Backend health check FAILED. Last logs:"
               sudo journalctl -u rag-backend -n 40 --no-pager
               exit 1
