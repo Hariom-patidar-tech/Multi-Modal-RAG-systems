@@ -64,8 +64,7 @@ jobs:
           echo "Disk before install:"
           df -h /
 
-          # ---- Backend ----
-          # Pichhla install adhura tha (marker nahi) to venv hatakar fresh banao
+          # ---- Backend venv ----
           if [ ! -f venv/.install_ok ]; then
             rm -rf venv
           fi
@@ -80,13 +79,37 @@ jobs:
           fi
           source venv/bin/activate
 
+          # ---- requirements.txt ko saaf karo (UTF-16 / UTF-8 dono chalega) ----
+          python - <<'PY'
+          import re
+          raw = open("requirements.txt", "rb").read()
+          if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+              text = raw.decode("utf-16")
+              print("requirements.txt encoding: UTF-16")
+          else:
+              text = raw.decode("utf-8-sig", errors="ignore")
+              print("requirements.txt encoding: UTF-8")
+          skip = re.compile(r"^(pytest|torch)([=<>~ ]|$)", re.I)
+          lines = []
+          for line in text.splitlines():
+              line = line.strip()
+              if line and not line.startswith("#") and not skip.match(line):
+                  lines.append(line)
+          open("/tmp/req.txt", "w").write("\n".join(lines) + "\n")
+          print(len(lines), "packages will be installed")
+          PY
+          test -s /tmp/req.txt || { echo "ERROR: requirements khaali hai"; exit 1; }
+
           # ---- Light install (CPU torch, no cache) ----
           export PIP_NO_CACHE_DIR=1
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          grep -viE '^(pytest|torch)([=<>~ ]|$)' requirements.txt > /tmp/req.txt
           pip install -r /tmp/req.txt
           rm -f /tmp/req.txt
+
+          # ---- Install verify ----
+          test -x venv/bin/uvicorn || { echo "ERROR: uvicorn install nahi hua"; ls venv/bin | head -30; exit 1; }
+          echo "Installed packages: $(pip list 2>/dev/null | wc -l)"
           touch venv/.install_ok
           echo "Disk after install:"
           df -h /
