@@ -39,6 +39,7 @@ jobs:
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
             -o BatchMode=yes \
             "$EC2_USER@$EC2_HOST" \
             "REPO_URL='https://github.com/${{ github.repository }}.git' PROJECT_DIR='/home/ubuntu/${{ github.event.repository.name }}' APP_MODULE='$APP_MODULE' APP_PORT='$APP_PORT' bash -s" <<'EOF'
@@ -67,7 +68,12 @@ jobs:
           fi
           source venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --no-cache-dir -r requirements.txt
+
+          # ---- .env warning ----
+          if [ ! -f .env ]; then
+            echo "WARNING: $PROJECT_DIR/.env nahi mila. Groq/LLM API keys ke bina backend crash ho sakta hai."
+          fi
 
           # ---- systemd service (sirf pehli baar banega) ----
           if [ ! -f /etc/systemd/system/rag-backend.service ]; then
@@ -81,6 +87,7 @@ jobs:
           WorkingDirectory=$PROJECT_DIR
           ExecStart=$PROJECT_DIR/venv/bin/uvicorn $APP_MODULE --host 0.0.0.0 --port $APP_PORT
           Restart=always
+          RestartSec=5
 
           [Install]
           WantedBy=multi-user.target
@@ -90,8 +97,21 @@ jobs:
           sudo systemctl daemon-reload
           sudo systemctl enable rag-backend
           sudo systemctl restart rag-backend
-          sleep 3
-          sudo systemctl is-active rag-backend
+
+          # ---- Health check (60 sec tak retry) ----
+          echo "Waiting for backend health check..."
+          for i in $(seq 1 12); do
+            if curl -fs "http://127.0.0.1:$APP_PORT/api/v1/health" > /dev/null; then
+              echo "Backend is healthy"
+              break
+            fi
+            if [ "$i" -eq 12 ]; then
+              echo "Backend health check FAILED. Last logs:"
+              sudo journalctl -u rag-backend -n 40 --no-pager
+              exit 1
+            fi
+            sleep 5
+          done
 
           # ---- Frontend (index.html) ----
           if command -v nginx > /dev/null; then
