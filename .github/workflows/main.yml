@@ -1,3 +1,22 @@
+name: Deploy Multi-Modal RAG to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_USER: ubuntu
+  APP_MODULE: app.main:app
+  APP_PORT: "8000"
+
+jobs:
+  deploy:
+    name: Deploy Frontend + Backend
+    runs-on: ubuntu-24.04
+
+    steps:
       - name: Setup SSH key
         env:
           SSH_KEY: ${{ secrets.RAG }}
@@ -8,3 +27,81 @@
           echo "Total lines in key: $(wc -l < ~/.ssh/rag.pem)"
           ssh-keygen -y -f ~/.ssh/rag.pem > /dev/null
           echo "SSH key format is valid"
+
+      - name: Check EC2 port 22
+        run: |
+          timeout 15 bash -c "</dev/tcp/$EC2_HOST/22"
+          echo "Port 22 reachable"
+
+      - name: Deploy Frontend and Backend
+        run: |
+          ssh -i ~/.ssh/rag.pem \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            -o BatchMode=yes \
+            "$EC2_USER@$EC2_HOST" \
+            "REPO_URL='https://github.com/${{ github.repository }}.git' PROJECT_DIR='/home/ubuntu/${{ github.event.repository.name }}' APP_MODULE='$APP_MODULE' APP_PORT='$APP_PORT' bash -s" <<'EOF'
+          set -e
+          echo "CONNECTED TO EC2"
+
+          # ---- Clone / update ----
+          if [ ! -d "$PROJECT_DIR/.git" ]; then
+            git clone "$REPO_URL" "$PROJECT_DIR"
+          else
+            cd "$PROJECT_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+          fi
+          cd "$PROJECT_DIR"
+          git log -1 --oneline
+
+          # ---- Backend ----
+          if [ ! -d venv ]; then
+            python3 -m venv venv || {
+              rm -rf venv
+              sudo apt-get update
+              sudo apt-get install -y python3-venv
+              python3 -m venv venv
+            }
+          fi
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+          # ---- systemd service (sirf pehli baar banega) ----
+          if [ ! -f /etc/systemd/system/rag-backend.service ]; then
+          sudo tee /etc/systemd/system/rag-backend.service > /dev/null <<UNIT
+          [Unit]
+          Description=RAG FastAPI backend
+          After=network.target
+
+          [Service]
+          User=ubuntu
+          WorkingDirectory=$PROJECT_DIR
+          ExecStart=$PROJECT_DIR/venv/bin/uvicorn $APP_MODULE --host 0.0.0.0 --port $APP_PORT
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          fi
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable rag-backend
+          sudo systemctl restart rag-backend
+          sleep 3
+          sudo systemctl is-active rag-backend
+
+          # ---- Frontend (index.html) ----
+          if command -v nginx > /dev/null; then
+            sudo mkdir -p /var/www/rag-frontend
+            sudo cp index.html /var/www/rag-frontend/index.html
+            sudo nginx -t
+            sudo systemctl reload nginx
+          else
+            echo "nginx installed nahi hai, frontend step skip"
+          fi
+
+          echo "DEPLOYMENT SUCCESSFUL"
+          EOF
