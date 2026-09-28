@@ -5,49 +5,144 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+
 jobs:
   deploy:
     name: Deploy to EC2
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
-      # 1. Checkout GitHub repository
+
+      # ----------------------------------------
+      # 1. Checkout repository
+      # ----------------------------------------
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Setup SSH
+      # ----------------------------------------
+      # 2. Setup SSH private key
+      # ----------------------------------------
       - name: Setup SSH
+        shell: bash
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.RAG }}" > ~/.ssh/ec2_key.pem
-          chmod 600 ~/.ssh/ec2_key.pem
 
-      # 3. Add EC2 server to known hosts
-      - name: Add EC2 Host
+          printf '%s\n' '${{ secrets.RAG }}' > ~/.ssh/rag_ec2.pem
+
+          chmod 600 ~/.ssh/rag_ec2.pem
+
+      # ----------------------------------------
+      # 3. Test SSH connection
+      # ----------------------------------------
+      - name: Test EC2 Connection
+        shell: bash
         run: |
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
+              -i ~/.ssh/rag_ec2.pem \
+              ubuntu@${{ vars.EC2_HOST }} \
+              "echo 'EC2 SSH connection successful'"
 
-      # 4. Deploy code to EC2
+      # ----------------------------------------
+      # 4. Deploy application
+      # ----------------------------------------
       - name: Deploy Application
+        shell: bash
         run: |
-          ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no \
+              -i ~/.ssh/rag_ec2.pem \
+              ubuntu@${{ vars.EC2_HOST }} << 'EOF'
 
-            # Go to project directory
-            cd ~/rag-platform
+            set -e
 
-            # Get latest code
-            git pull origin main
+            echo "================================"
+            echo "Starting deployment..."
+            echo "================================"
 
-            # Activate virtual environment
+            # --------------------------------
+            # Create project directory
+            # --------------------------------
+            if [ ! -d "$HOME/rag-platform/.git" ]; then
+
+              echo "Repository not found."
+
+              rm -rf "$HOME/rag-platform"
+
+              git clone \
+                https://github.com/${{ github.repository }}.git \
+                "$HOME/rag-platform"
+
+            else
+
+              echo "Repository already exists."
+              cd "$HOME/rag-platform"
+
+              git fetch origin
+              git reset --hard origin/main
+
+            fi
+
+            cd "$HOME/rag-platform"
+
+            echo "Current directory:"
+            pwd
+
+            echo "Current commit:"
+            git rev-parse --short HEAD
+
+            # --------------------------------
+            # Create Python virtual environment
+            # --------------------------------
+            if [ ! -d "venv" ]; then
+              echo "Creating virtual environment..."
+              python3 -m venv venv
+            fi
+
+            # --------------------------------
+            # Activate environment
+            # --------------------------------
             source venv/bin/activate
 
-            # Install/update dependencies
-            pip install -r requirements.txt
+            # --------------------------------
+            # Upgrade pip
+            # --------------------------------
+            python -m pip install --upgrade pip
 
+            # --------------------------------
+            # Install requirements
+            # --------------------------------
+            if [ -f "requirements.txt" ]; then
+              echo "Installing requirements..."
+              pip install -r requirements.txt
+            else
+              echo "requirements.txt not found!"
+              exit 1
+            fi
+
+            # --------------------------------
             # Restart application
-            sudo systemctl restart rag-platform
+            # --------------------------------
+            if sudo systemctl list-unit-files | grep -q "^rag-platform.service"; then
 
-            # Check status
-            sudo systemctl status rag-platform --no-pager
+              echo "Restarting rag-platform service..."
+
+              sudo systemctl daemon-reload
+              sudo systemctl restart rag-platform
+              sudo systemctl enable rag-platform
+
+              echo "Service status:"
+              sudo systemctl status rag-platform --no-pager
+
+            else
+
+              echo "WARNING: rag-platform.service does not exist."
+              echo "Application dependencies installed successfully."
+
+            fi
+
+            echo "================================"
+            echo "Deployment completed successfully"
+            echo "================================"
 
           EOF
