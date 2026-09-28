@@ -2,10 +2,14 @@ name: Deploy Multi-Modal RAG to EC2
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
   workflow_dispatch:
+
+env:
+  EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_USER: ubuntu
+  APP_MODULE: app.main:app     # <-- app/main.py mein `app = FastAPI()` ho to yahi rakho
+  APP_PORT: "8000"
 
 jobs:
   deploy:
@@ -13,218 +17,90 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-
-      # =========================================
-      # 1. Checkout Repository
-      # =========================================
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # =========================================
-      # 2. Create SSH Key
-      # =========================================
-
-      - name: Setup SSH Key
-        shell: bash
+      - name: Setup SSH key
+        env:
+          SSH_KEY: ${{ secrets.RAG }}
         run: |
-          mkdir -p "$HOME/.ssh"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/rag.pem
+          chmod 600 ~/.ssh/rag.pem
+          ssh-keygen -y -f ~/.ssh/rag.pem > /dev/null
+          echo "SSH key format is valid"
 
-          cat > "$HOME/.ssh/rag.pem" <<'KEY'
-          ${{ secrets.RAG }}
-          KEY
-
-          chmod 600 "$HOME/.ssh/rag.pem"
-
-          echo "SSH key file created"
-
-      # =========================================
-      # 3. Validate SSH Key
-      # =========================================
-
-      - name: Validate SSH Key
-        shell: bash
+      - name: Check EC2 port 22
         run: |
-          ssh-keygen -y -f "$HOME/.ssh/rag.pem" > /tmp/rag_public_key.pub
-
-          echo "SSH private key format is valid"
-
-      # =========================================
-      # 4. Check Port 22
-      # =========================================
-
-      - name: Check EC2 SSH Port
-        shell: bash
-        run: |
-          echo "Checking SSH port 22..."
-
-          timeout 10 bash -c \
-          "</dev/tcp/${{ secrets.EC2_HOST }}/22"
-
-          echo "EC2 port 22 is reachable"
-
-      # =========================================
-      # 5. Test SSH
-      # =========================================
-
-      - name: Test EC2 SSH
-        shell: bash
-        run: |
-          ssh \
-            -i "$HOME/.ssh/rag.pem" \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=20 \
-            -o BatchMode=yes \
-            ubuntu@${{ secrets.EC2_HOST }} \
-            "echo 'SSH CONNECTION SUCCESSFUL'"
-
-      # =========================================
-      # 6. Deploy
-      # =========================================
+          timeout 15 bash -c "</dev/tcp/$EC2_HOST/22"
+          echo "Port 22 reachable"
 
       - name: Deploy Frontend and Backend
-        shell: bash
         run: |
-
-          ssh \
-            -i "$HOME/.ssh/rag.pem" \
+          ssh -i ~/.ssh/rag.pem \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
             -o BatchMode=yes \
-            ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+            "$EC2_USER@$EC2_HOST" \
+            "REPO_URL='https://github.com/${{ github.repository }}.git' PROJECT_DIR='/home/ubuntu/${{ github.event.repository.name }}' APP_MODULE='$APP_MODULE' APP_PORT='$APP_PORT' bash -s" <<'EOF'
+          set -e
+          echo "CONNECTED TO EC2"
 
-            set -e
-
-            echo "=========================================="
-            echo "CONNECTED TO EC2"
-            echo "=========================================="
-
-            PROJECT_DIR="/home/ubuntu/Multi-Modal-RAG-systems"
-
-            # ======================================
-            # Clone / Update Repository
-            # ======================================
-
-            if [ ! -d "$PROJECT_DIR/.git" ]; then
-
-              echo "Repository not found."
-              echo "Cloning repository..."
-
-              git clone \
-                https://github.com/${{ github.repository }}.git \
-                "$PROJECT_DIR"
-
-            else
-
-              echo "Repository already exists."
-
-              cd "$PROJECT_DIR"
-
-              git fetch origin
-
-              git reset --hard origin/main
-
-            fi
-
+          # ---- Clone / update ----
+          if [ ! -d "$PROJECT_DIR/.git" ]; then
+            git clone "$REPO_URL" "$PROJECT_DIR"
+          else
             cd "$PROJECT_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+          fi
+          cd "$PROJECT_DIR"
+          git log -1 --oneline
 
-            echo "Current commit:"
-            git log -1 --oneline
-
-            # ======================================
-            # BACKEND
-            # ======================================
-
-            echo "=========================================="
-            echo "BACKEND DEPLOYMENT"
-            echo "=========================================="
-
-            cd "$PROJECT_DIR/backend"
-
-            if [ ! -d "venv" ]; then
-
-              echo "Creating Python virtual environment..."
-
+          # ---- Backend ----
+          if [ ! -d venv ]; then
+            python3 -m venv venv || {
+              rm -rf venv
+              sudo apt-get update
+              sudo apt-get install -y python3-venv
               python3 -m venv venv
+            }
+          fi
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-            fi
+          # ---- systemd service (sirf pehli baar banega) ----
+          if [ ! -f /etc/systemd/system/rag-backend.service ]; then
+          sudo tee /etc/systemd/system/rag-backend.service > /dev/null <<UNIT
+          [Unit]
+          Description=RAG FastAPI backend
+          After=network.target
 
-            source venv/bin/activate
+          [Service]
+          User=ubuntu
+          WorkingDirectory=$PROJECT_DIR
+          ExecStart=$PROJECT_DIR/venv/bin/uvicorn $APP_MODULE --host 0.0.0.0 --port $APP_PORT
+          Restart=always
 
-            python -m pip install --upgrade pip
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          fi
 
-            if [ -f requirements.txt ]; then
+          sudo systemctl daemon-reload
+          sudo systemctl enable rag-backend
+          sudo systemctl restart rag-backend
+          sleep 3
+          sudo systemctl is-active rag-backend
 
-              echo "Installing backend requirements..."
-
-              pip install -r requirements.txt
-
-            else
-
-              echo "ERROR: requirements.txt not found"
-
-              exit 1
-
-            fi
-
-            # ======================================
-            # Restart Backend
-            # ======================================
-
-            if systemctl list-unit-files | grep -q "rag-backend.service"; then
-
-              echo "Restarting RAG backend..."
-
-              sudo systemctl daemon-reload
-
-              sudo systemctl restart rag-backend
-
-              sudo systemctl enable rag-backend
-
-              sudo systemctl status rag-backend --no-pager
-
-            else
-
-              echo "WARNING: rag-backend.service does not exist yet."
-
-            fi
-
-            # ======================================
-            # FRONTEND
-            # ======================================
-
-            echo "=========================================="
-            echo "FRONTEND DEPLOYMENT"
-            echo "=========================================="
-
-            cd "$PROJECT_DIR/frontend"
-
-            npm install
-
-            npm run build
-
-            # ======================================
-            # NGINX
-            # ======================================
-
-            echo "Deploying frontend..."
-
+          # ---- Frontend (index.html) ----
+          if command -v nginx > /dev/null; then
             sudo mkdir -p /var/www/rag-frontend
-
-            sudo rm -rf /var/www/rag-frontend/*
-
-            sudo cp -r dist/* /var/www/rag-frontend/
-
-            sudo chown -R www-data:www-data /var/www/rag-frontend
-
+            sudo cp index.html /var/www/rag-frontend/index.html
             sudo nginx -t
-
             sudo systemctl reload nginx
+          else
+            echo "nginx installed nahi hai, frontend step skip"
+          fi
 
-            echo "=========================================="
-            echo "DEPLOYMENT SUCCESSFUL"
-            echo "=========================================="
-
+          echo "DEPLOYMENT SUCCESSFUL"
           EOF
