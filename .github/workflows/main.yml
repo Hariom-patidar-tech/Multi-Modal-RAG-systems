@@ -1,4 +1,4 @@
-name: Deploy to EC2
+name: Deploy Multi-Modal RAG to EC2
 
 on:
   push:
@@ -9,17 +9,22 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to EC2
+    name: Deploy Frontend + Backend
     runs-on: ubuntu-24.04
 
     steps:
 
+      # ==========================================
+      # 1. Checkout GitHub Repository
+      # ==========================================
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ---------------------------------------
-      # Setup SSH Key
-      # ---------------------------------------
+      # ==========================================
+      # 2. Setup SSH
+      # ==========================================
+
       - name: Setup SSH
         shell: bash
         run: |
@@ -29,28 +34,25 @@ jobs:
 
           chmod 600 ~/.ssh/rag.pem
 
-          echo "SSH key created."
+      # ==========================================
+      # 3. Test EC2 Connection
+      # ==========================================
 
-      # ---------------------------------------
-      # Test SSH Connection
-      # ---------------------------------------
-      - name: Test SSH Connection
+      - name: Test EC2 Connection
         shell: bash
         run: |
-          echo "Testing connection to EC2..."
-
           ssh \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=20 \
-            -o ServerAliveInterval=10 \
             -i ~/.ssh/rag.pem \
             ubuntu@${{ secrets.EC2_HOST }} \
-            "echo '================================'; echo 'EC2 CONNECTION SUCCESS'; echo '================================'"
+            "echo '======================================'; echo 'SSH CONNECTION SUCCESSFUL'; echo '======================================'"
 
-      # ---------------------------------------
-      # Deploy
-      # ---------------------------------------
+      # ==========================================
+      # 4. Deploy Application
+      # ==========================================
+
       - name: Deploy Application
         shell: bash
         run: |
@@ -64,115 +66,154 @@ jobs:
 
             set -e
 
-            echo "========================================"
-            echo "Connected to EC2"
-            echo "========================================"
+            echo "======================================"
+            echo "CONNECTED TO AWS EC2"
+            echo "======================================"
 
-            cd ~
+            PROJECT_DIR="/home/ubuntu/rag-platform"
 
+            # ==================================
             # Clone repository first time
-            if [ ! -d "$HOME/rag-platform/.git" ]; then
+            # ==================================
+
+            if [ ! -d "$PROJECT_DIR/.git" ]; then
 
               echo "Repository not found."
               echo "Cloning repository..."
 
               git clone \
                 https://github.com/${{ github.repository }}.git \
-                "$HOME/rag-platform"
+                "$PROJECT_DIR"
 
             else
 
               echo "Repository already exists."
               echo "Updating repository..."
 
-              cd "$HOME/rag-platform"
+              cd "$PROJECT_DIR"
 
               git fetch origin
+
               git reset --hard origin/main
 
             fi
 
-            cd "$HOME/rag-platform"
+            cd "$PROJECT_DIR"
 
-            echo "Project directory:"
-            pwd
-
-            echo "Latest commit:"
+            echo "Current commit:"
             git log -1 --oneline
 
-            # --------------------------------
-            # Python
-            # --------------------------------
+            # ==================================
+            # BACKEND
+            # ==================================
 
-            echo "Checking Python..."
+            echo "======================================"
+            echo "BACKEND DEPLOYMENT"
+            echo "======================================"
 
-            python3 --version
+            cd "$PROJECT_DIR/backend"
 
-            # --------------------------------
-            # Virtual Environment
-            # --------------------------------
-
+            # Create virtual environment
             if [ ! -d "venv" ]; then
 
-              echo "Creating virtual environment..."
+              echo "Creating Python virtual environment..."
 
               python3 -m venv venv
 
             fi
 
+            # Activate virtual environment
             source venv/bin/activate
 
-            # --------------------------------
             # Upgrade pip
-            # --------------------------------
-
             python -m pip install --upgrade pip
 
-            # --------------------------------
             # Install dependencies
-            # --------------------------------
-
             if [ -f requirements.txt ]; then
 
-              echo "Installing requirements..."
+              echo "Installing backend dependencies..."
 
               pip install -r requirements.txt
 
             else
 
-              echo "ERROR: requirements.txt not found."
+              echo "ERROR: backend/requirements.txt not found."
 
               exit 1
 
             fi
 
-            # --------------------------------
-            # Restart service if exists
-            # --------------------------------
+            # Restart backend
+            if sudo systemctl list-unit-files | grep -q "^rag-backend.service"; then
 
-            if sudo systemctl list-unit-files | grep -q "rag-platform.service"; then
-
-              echo "Restarting RAG service..."
+              echo "Restarting backend..."
 
               sudo systemctl daemon-reload
-              sudo systemctl restart rag-platform
-              sudo systemctl enable rag-platform
 
-              echo "Service status:"
+              sudo systemctl restart rag-backend
 
-              sudo systemctl status rag-platform --no-pager
+              sudo systemctl enable rag-backend
+
+              sudo systemctl status rag-backend --no-pager
 
             else
 
-              echo "WARNING:"
-              echo "rag-platform.service does not exist yet."
+              echo "WARNING: rag-backend.service not found."
 
-              echo "Dependencies installed successfully."
+              echo "Backend dependencies installed."
 
             fi
 
-            echo "========================================"
+            # ==================================
+            # FRONTEND
+            # ==================================
+
+            echo "======================================"
+            echo "FRONTEND DEPLOYMENT"
+            echo "======================================"
+
+            cd "$PROJECT_DIR/frontend"
+
+            echo "Installing frontend dependencies..."
+
+            npm install
+
+            echo "Building frontend..."
+
+            npm run build
+
+            # ==================================
+            # Copy frontend build to Nginx
+            # ==================================
+
+            echo "Copying frontend build..."
+
+            sudo mkdir -p /var/www/rag-frontend
+
+            sudo rm -rf /var/www/rag-frontend/*
+
+            sudo cp -r dist/* /var/www/rag-frontend/
+
+            sudo chown -R www-data:www-data /var/www/rag-frontend
+
+            # ==================================
+            # NGINX
+            # ==================================
+
+            echo "Testing Nginx..."
+
+            sudo nginx -t
+
+            echo "Reloading Nginx..."
+
+            sudo systemctl reload nginx
+
+            # ==================================
+            # DONE
+            # ==================================
+
+            echo "======================================"
             echo "DEPLOYMENT SUCCESSFUL"
-            echo "========================================"
+            echo "======================================"
 
           EOF
