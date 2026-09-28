@@ -1,4 +1,4 @@
-name: Deploy Multi-Modal RAG to AWS EC2
+name: Deploy to EC2
 
 on:
   push:
@@ -14,60 +14,67 @@ jobs:
 
     steps:
 
-      # ----------------------------------------
-      # 1. Checkout repository
-      # ----------------------------------------
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ----------------------------------------
-      # 2. Setup SSH private key
-      # ----------------------------------------
+      # ---------------------------------------
+      # Setup SSH Key
+      # ---------------------------------------
       - name: Setup SSH
         shell: bash
         run: |
           mkdir -p ~/.ssh
 
-          printf '%s\n' '${{ secrets.RAG }}' > ~/.ssh/rag_ec2.pem
+          printf '%s\n' "${{ secrets.RAG }}" > ~/.ssh/rag.pem
 
-          chmod 600 ~/.ssh/rag_ec2.pem
+          chmod 600 ~/.ssh/rag.pem
 
-      # ----------------------------------------
-      # 3. Test SSH connection
-      # ----------------------------------------
-      - name: Test EC2 Connection
+          echo "SSH key created."
+
+      # ---------------------------------------
+      # Test SSH Connection
+      # ---------------------------------------
+      - name: Test SSH Connection
         shell: bash
         run: |
-          ssh -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              -i ~/.ssh/rag_ec2.pem \
-              ubuntu@${{ vars.EC2_HOST }} \
-              "echo 'EC2 SSH connection successful'"
+          echo "Testing connection to EC2..."
 
-      # ----------------------------------------
-      # 4. Deploy application
-      # ----------------------------------------
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=10 \
+            -i ~/.ssh/rag.pem \
+            ubuntu@${{ secrets.EC2_HOST }} \
+            "echo '================================'; echo 'EC2 CONNECTION SUCCESS'; echo '================================'"
+
+      # ---------------------------------------
+      # Deploy
+      # ---------------------------------------
       - name: Deploy Application
         shell: bash
         run: |
-          ssh -o StrictHostKeyChecking=no \
-              -i ~/.ssh/rag_ec2.pem \
-              ubuntu@${{ vars.EC2_HOST }} << 'EOF'
+
+          ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=20 \
+            -i ~/.ssh/rag.pem \
+            ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
 
             set -e
 
-            echo "================================"
-            echo "Starting deployment..."
-            echo "================================"
+            echo "========================================"
+            echo "Connected to EC2"
+            echo "========================================"
 
-            # --------------------------------
-            # Create project directory
-            # --------------------------------
+            cd ~
+
+            # Clone repository first time
             if [ ! -d "$HOME/rag-platform/.git" ]; then
 
               echo "Repository not found."
-
-              rm -rf "$HOME/rag-platform"
+              echo "Cloning repository..."
 
               git clone \
                 https://github.com/${{ github.repository }}.git \
@@ -76,6 +83,8 @@ jobs:
             else
 
               echo "Repository already exists."
+              echo "Updating repository..."
+
               cd "$HOME/rag-platform"
 
               git fetch origin
@@ -85,64 +94,85 @@ jobs:
 
             cd "$HOME/rag-platform"
 
-            echo "Current directory:"
+            echo "Project directory:"
             pwd
 
-            echo "Current commit:"
-            git rev-parse --short HEAD
+            echo "Latest commit:"
+            git log -1 --oneline
 
             # --------------------------------
-            # Create Python virtual environment
+            # Python
             # --------------------------------
+
+            echo "Checking Python..."
+
+            python3 --version
+
+            # --------------------------------
+            # Virtual Environment
+            # --------------------------------
+
             if [ ! -d "venv" ]; then
+
               echo "Creating virtual environment..."
+
               python3 -m venv venv
+
             fi
 
-            # --------------------------------
-            # Activate environment
-            # --------------------------------
             source venv/bin/activate
 
             # --------------------------------
             # Upgrade pip
             # --------------------------------
+
             python -m pip install --upgrade pip
 
             # --------------------------------
-            # Install requirements
+            # Install dependencies
             # --------------------------------
-            if [ -f "requirements.txt" ]; then
+
+            if [ -f requirements.txt ]; then
+
               echo "Installing requirements..."
+
               pip install -r requirements.txt
+
             else
-              echo "requirements.txt not found!"
+
+              echo "ERROR: requirements.txt not found."
+
               exit 1
+
             fi
 
             # --------------------------------
-            # Restart application
+            # Restart service if exists
             # --------------------------------
-            if sudo systemctl list-unit-files | grep -q "^rag-platform.service"; then
 
-              echo "Restarting rag-platform service..."
+            if sudo systemctl list-unit-files | grep -q "rag-platform.service"; then
+
+              echo "Restarting RAG service..."
 
               sudo systemctl daemon-reload
               sudo systemctl restart rag-platform
               sudo systemctl enable rag-platform
 
               echo "Service status:"
+
               sudo systemctl status rag-platform --no-pager
 
             else
 
-              echo "WARNING: rag-platform.service does not exist."
-              echo "Application dependencies installed successfully."
+              echo "WARNING:"
+              echo "rag-platform.service does not exist yet."
+
+              echo "Dependencies installed successfully."
 
             fi
 
-            echo "================================"
-            echo "Deployment completed successfully"
-            echo "================================"
+            echo "========================================"
+            echo "DEPLOYMENT SUCCESSFUL"
+            echo "========================================"
 
           EOF
