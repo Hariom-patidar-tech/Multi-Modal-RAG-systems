@@ -6,7 +6,7 @@ from app.rag.prompts import SYSTEM_PROMPT
 class LLMEngine:
     def __init__(self):
         self.api_key = settings.GROQ_API_KEY
-        self.model_name = "llama-3.3-70b-versatile"
+        self.model_name = settings.GROQ_MODEL
         
         if not self.api_key:
             logger.error("GROQ_API_KEY missing in project environment configurations.")

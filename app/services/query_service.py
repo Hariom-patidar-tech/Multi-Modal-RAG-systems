@@ -101,7 +101,7 @@ def ask_question(
 
         chat_completion = client.chat.completions.create(
 
-            model="llama-3.3-70b-versatile",
+            model=settings.GROQ_MODEL,
 
             temperature=0.3,
 

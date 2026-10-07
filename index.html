@@ -610,7 +610,8 @@
 </main>
 
 <script>
-const API_BASE = "http://127.0.0.1:8001/api/v1";
+const API_BASE = (new URLSearchParams(window.location.search).get("api")
+  || "http://127.0.0.1:8000/api/v1").replace(/\/+$/, "");
 
 // ---------- State ----------
 let activeIngestType = "youtube";
@@ -653,14 +654,42 @@ function clearStatus(el) {
   el.className = "status-line";
 }
 
+async function readApiResponse(response, fallbackMessage) {
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    if (!response.ok) {
+      throw new Error(`${fallbackMessage} (HTTP ${response.status})`);
+    }
+    throw new Error("The API returned an invalid response.");
+  }
+
+  if (!response.ok) {
+    const detail = typeof data.detail === "string"
+      ? data.detail
+      : data.detail
+        ? JSON.stringify(data.detail)
+        : `${fallbackMessage} (HTTP ${response.status})`;
+    throw new Error(detail);
+  }
+  return data;
+}
+
 function addLedgerItem(typeKey, label) {
   if (ledgerItems.length === 0) ledger.innerHTML = "";
   ledgerItems.push({ typeKey, label });
   const item = document.createElement("div");
   item.className = "ticket";
-  item.innerHTML = `<span class="ticket-dot dot-${typeKey}"></span>
-    <span class="ticket-text">${label}</span>
-    <span class="ticket-type">${typeKey}</span>`;
+  const dot = document.createElement("span");
+  dot.className = `ticket-dot dot-${typeKey}`;
+  const text = document.createElement("span");
+  text.className = "ticket-text";
+  text.textContent = label;
+  const type = document.createElement("span");
+  type.className = "ticket-type";
+  type.textContent = typeKey;
+  item.append(dot, text, type);
   ledger.prepend(item);
 }
 
@@ -689,7 +718,10 @@ async function handleFileUpload(file) {
   }
 
   setStatus(uploadStatus, `Uploading ${file.name}...`, "pending");
-  fileDropLabel.innerHTML = `<span class="drop-icon">⬆</span>${file.name}`;
+  const dropIcon = document.createElement("span");
+  dropIcon.className = "drop-icon";
+  dropIcon.textContent = "⬆";
+  fileDropLabel.replaceChildren(dropIcon, document.createTextNode(file.name));
 
   const formData = new FormData();
   formData.append("file", file);
@@ -699,10 +731,10 @@ async function handleFileUpload(file) {
       method: "POST",
       body: formData
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Upload failed");
+    const data = await readApiResponse(res, "Upload failed");
 
-    setStatus(uploadStatus, `Added · ${data.chunks_added || data.total_chunks || ""} chunks indexed`, "ok");
+    const chunks = data.chunks_added ?? data.total_chunks ?? data.chunks ?? "";
+    setStatus(uploadStatus, `Added · ${chunks} chunks indexed`, "ok");
     addLedgerItem("document", file.name);
   } catch (err) {
     setStatus(uploadStatus, `Failed: ${err.message}`, "err");
@@ -737,10 +769,9 @@ ingestBtn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, source_type: activeIngestType })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Ingestion failed");
+    const data = await readApiResponse(res, "Ingestion failed");
 
-    setStatus(ingestStatus, `Added · ${data.chunks_added || 0} chunks indexed`, "ok");
+    setStatus(ingestStatus, `Added · ${data.chunks_added ?? data.chunks ?? 0} chunks indexed`, "ok");
     addLedgerItem(activeIngestType, url);
     urlInput.value = "";
   } catch (err) {
@@ -814,29 +845,32 @@ async function sendQuestion() {
 
   try {
     if (activeFilter === "all") {
-      const [docRes, extRes] = await Promise.allSettled([
+      const [docResult, extResult] = await Promise.allSettled([
         fetch(`${API_BASE}/query/documents`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question })
-        }),
+        }).then(res => readApiResponse(res, "Document query failed")),
         fetch(`${API_BASE}/query/external`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question })
-        })
+        }).then(res => readApiResponse(res, "External-source query failed"))
       ]);
 
       let combinedAnswer = "";
       let combinedSources = [];
+      const failures = [docResult, extResult]
+        .filter(result => result.status === "rejected")
+        .map(result => result.reason.message);
 
-      if (extRes.status === "fulfilled" && extRes.value.ok) {
-        const extData = await extRes.value.json();
+      if (extResult.status === "fulfilled") {
+        const extData = extResult.value;
         if (extData.status !== "empty_database") {
           combinedAnswer = extData.answer;
           combinedSources = extData.sources || [];
         }
       }
-      if (docRes.status === "fulfilled" && docRes.value.ok) {
-        const docData = await docRes.value.json();
+      if (docResult.status === "fulfilled") {
+        const docData = docResult.value;
         if (docData.status !== "empty_database") {
           combinedAnswer = combinedAnswer
             ? combinedAnswer + "\n\n" + docData.answer
@@ -844,7 +878,16 @@ async function sendQuestion() {
           combinedSources = combinedSources.concat(docData.sources || []);
         }
       }
-      if (!combinedAnswer) combinedAnswer = "I could not find any relevant information in the selected database.";
+      if (failures.length === 2) {
+        throw new Error(failures.join("; "));
+      }
+      if (!combinedAnswer) {
+        combinedAnswer = failures.length
+          ? `Could not search all selected sources: ${failures.join("; ")}`
+          : "I could not find any relevant information in the selected database.";
+      } else if (failures.length) {
+        combinedAnswer += `\n\nSome sources could not be searched: ${failures.join("; ")}`;
+      }
       renderAssistantMessage(loadingEl, combinedAnswer, [...new Set(combinedSources)]);
     } else if (activeFilter === "document") {
       const res = await fetch(`${API_BASE}/query/documents`, {
@@ -852,8 +895,7 @@ async function sendQuestion() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Query failed");
+      const data = await readApiResponse(res, "Query failed");
       renderAssistantMessage(loadingEl, data.answer, data.sources || []);
     } else {
       const res = await fetch(`${API_BASE}/query/external?source_type=${activeFilter}`, {
@@ -861,8 +903,7 @@ async function sendQuestion() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Query failed");
+      const data = await readApiResponse(res, "Query failed");
       renderAssistantMessage(loadingEl, data.answer, data.sources || []);
     }
   } catch (err) {
